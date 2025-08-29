@@ -1,0 +1,20 @@
+{
+    "keep": {
+        "days": true,
+        "amount": 30
+    },
+    "auditLog": "D:\\INFRA\\GCG\\backend\\logs\\.1ab44aedf581b554bd663d8a770aabcb9e9f3e71-audit.json",
+    "files": [
+        {
+            "date": 1755590736059,
+            "name": "D:\\INFRA\\GCG\\backend\\logs\\error-2025-08-19.log",
+            "hash": "4bf749372bbd39b33534a34c011e6771b4cb9ce745d6fb0ec95617a41116813e"
+        },
+        {
+            "date": 1755651922475,
+            "name": "D:\\INFRA\\GCG\\backend\\logs\\error-2025-08-20.log",
+            "hash": "3f3bcc82bc09bde1c28a773b4c608f79f5b9f7e300e7c7ce158cb8556fb9ae6e"
+        }
+    ],
+    "hashType": "sha256"
+}
