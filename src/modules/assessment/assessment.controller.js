@@ -1,19 +1,24 @@
 const assessmentService = require('./assessment.service');
 const manualAssessmentService = require('./manual-assessment.service');
+const picAssignmentService = require('./pic-assignment.service');
+const dictionaryRepository = require('../dictionary/dictionary.repository');
 const { successResponse, errorResponse, paginatedResponse, validationErrorResponse } = require('../../utils/response');
-const logger = require('../../utils/logger');
+const logger = require('../../utils/logger-simple');
 const Joi = require('joi');
+const { getConnection } = require('../../config/database');
+const { randomUUID } = require('crypto');
+const ExcelService = require('../../services/excel.service');
 
 // Validation schemas
 const createAssessmentSchema = Joi.object({
-  organization_name: Joi.string().required().min(1).max(200),
+  title: Joi.string().required().min(1).max(200),
   assessment_date: Joi.date().required(),
   assessor_id: Joi.string().uuid().optional(),
   notes: Joi.string().optional().max(1000)
 });
 
 const updateAssessmentSchema = Joi.object({
-  organization_name: Joi.string().optional().min(1).max(200),
+  title: Joi.string().optional().min(1).max(200),
   assessment_date: Joi.date().optional(),
   assessor_id: Joi.string().uuid().optional(),
   status: Joi.string().valid('draft', 'in_progress', 'completed', 'reviewed').optional(),
@@ -43,35 +48,48 @@ const bulkResponseSchema = Joi.object({
 
 // Manual assessment schema
 const manualAssessmentSchema = Joi.object({
-  organization_name: Joi.string().required().min(1).max(200),
+  title: Joi.string().required().min(1).max(200),
+  organization_name: Joi.string().optional().allow('', null),
   assessment_date: Joi.date().required(),
   assessor_id: Joi.string().uuid().optional(),
   notes: Joi.string().optional().max(1000),
+  status: Joi.string().valid(
+    'draft',
+    'in_progress',
+    'verifikasi',
+    'selesai',
+    'selesai_berkelanjutan',
+    'proses_tindak_lanjut'
+  ).optional(),
   kkas: Joi.array().items(Joi.object({
-    id: Joi.string().required(),
-    kode: Joi.string().optional(),
-    nama: Joi.string().optional(),
-    deskripsi: Joi.string().optional(),
+    id: Joi.string().optional(),
+    kode: Joi.string().allow('', null).optional(),
+    nama: Joi.string().allow('', null).optional(),
+    deskripsi: Joi.string().allow('', null).optional(),
     weight: Joi.number().optional(),
+    sort: Joi.number().optional(),
     aspects: Joi.array().items(Joi.object({
-      id: Joi.string().required(),
-      kode: Joi.string().optional(),
-      nama: Joi.string().optional(),
+      id: Joi.string().optional(),
+      kode: Joi.string().allow('', null).optional(),
+      nama: Joi.string().allow('', null).optional(),
       weight: Joi.number().optional(),
       sort: Joi.number().optional(),
       parameters: Joi.array().items(Joi.object({
-        id: Joi.string().required(),
-        kode: Joi.string().optional(),
-        nama: Joi.string().optional(),
+        id: Joi.string().optional(),
+        kode: Joi.string().allow('', null).optional(),
+        nama: Joi.string().allow('', null).optional(),
         weight: Joi.number().optional(),
         sort: Joi.number().optional(),
         factors: Joi.array().items(Joi.object({
-          id: Joi.string().required(),
-          kode: Joi.string().optional(),
-          nama: Joi.string().optional(),
-          deskripsi: Joi.string().optional(),
+          id: Joi.string().optional(),
+          pic_user_id: Joi.string().uuid().allow(null).optional(),
+          pic_unit_bidang_id: Joi.string().uuid().allow(null).optional(),
+          kode: Joi.string().allow('', null).optional(),
+          nama: Joi.string().allow('', null).optional(),
+          deskripsi: Joi.string().allow('', null).optional(),
           max_score: Joi.number().optional(),
-          sort: Joi.number().optional()
+          sort: Joi.number().optional(),
+          comment: Joi.string().allow('', null).optional()
         })).optional()
       })).optional()
     })).optional()
@@ -83,7 +101,7 @@ const updateStatusSchema = Joi.object({
 });
 
 const createFromTemplateSchema = Joi.object({
-  organization_name: Joi.string().required().min(1).max(200),
+  title: Joi.string().required().min(1).max(200),
   assessment_date: Joi.date().optional(),
   notes: Joi.string().optional().max(1000)
 });
@@ -93,12 +111,20 @@ class AssessmentController {
   async getAllAssessments(req, res) {
     try {
       const { page = 1, limit = 50, search = '', status = '', assessor_id = '' } = req.query;
+      
+      // Get user's unit ID for filtering (only for non-admin users)
+      let userUnitId = null;
+      if (req.user.role !== 'admin' && req.user.unit_bidang_id) {
+        userUnitId = req.user.unit_bidang_id;
+      }
+      
       const result = await assessmentService.getAllAssessments(
         parseInt(page), 
         parseInt(limit), 
         search, 
         status, 
-        assessor_id
+        assessor_id,
+        userUnitId
       );
       
       res.json(paginatedResponse(
@@ -118,10 +144,18 @@ class AssessmentController {
     try {
       const { id } = req.params;
       
-      // Use manualAssessmentService to get full structure with KKAs
-      const assessment = await manualAssessmentService.getManualAssessmentStructure(id);
+      // Validate UUID format
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(id)) {
+        return res.status(400).json(errorResponse('Invalid assessment ID format', 'VALIDATION_ERROR'));
+      }
       
-      res.json(successResponse(assessment, 'Assessment retrieved successfully'));
+      // Use repository-backed service to fetch assessment and its hierarchy
+      const includeDetails = req.query.include === 'full';
+      const assessment = includeDetails
+        ? await assessmentService.getDetailedAssessment(id)
+        : await assessmentService.getAssessmentById(id);
+      return res.json(successResponse(assessment, 'Assessment retrieved successfully'));
     } catch (error) {
       logger.error('Error in getAssessmentById controller:', error);
       if (error.message === 'Assessment not found') {
@@ -137,19 +171,18 @@ class AssessmentController {
       const userId = req.user.id; // From auth middleware
       
       // Check if this is a manual assessment (has kkas array)
+      console.log('Assessment creation request body:', JSON.stringify(req.body, null, 2));
       if (req.body.kkas && Array.isArray(req.body.kkas)) {
-        // Handle manual assessment
         const { error, value } = manualAssessmentSchema.validate(req.body);
         if (error) {
           return res.status(400).json(validationErrorResponse('Validation error', error.details));
         }
 
-        const { kkas, ...assessmentData } = value;
-        const result = await manualAssessmentService.createManualAssessment(assessmentData, kkas, userId);
-        
-        res.status(201).json(successResponse(result.assessment, 'Manual assessment created successfully', {
-          idMapping: result.idMapping
-        }));
+        const result = await manualAssessmentService.createManualAssessment(value, value.kkas, userId);
+        res.status(201).json(successResponse({
+          assessment: result.assessment,
+          idMapping: result.hierarchy
+        }, 'Manual assessment created successfully'));
       } else {
         // Handle regular assessment
         const { error, value } = createAssessmentSchema.validate(req.body);
@@ -218,8 +251,13 @@ class AssessmentController {
     try {
       const { assessmentId } = req.params;
       const userId = req.user.id; // From auth middleware
+      const includeHierarchy = req.query.include === 'hierarchy';
+      if (includeHierarchy) {
+        const assessment = await assessmentService.getDetailedAssessment(assessmentId);
+        return res.json(successResponse(assessment, 'Assessment detail retrieved successfully'));
+      }
+
       const responses = await assessmentService.getAssessmentResponses(assessmentId, userId);
-      
       res.json(successResponse(responses, 'Assessment responses retrieved successfully'));
     } catch (error) {
       logger.error('Error in getAssessmentResponses controller:', error);
@@ -325,11 +363,8 @@ class AssessmentController {
       );
 
       if (hasClientIds) {
-        // Handle manual assessment responses
-        // We need to get the ID mapping for this assessment
         const assessmentStructure = await manualAssessmentService.getManualAssessmentStructure(value.assessment_id);
-        
-        // Build reverse mapping (client ID -> database ID)
+
         const idMapping = { factor: {} };
         assessmentStructure.kkas.forEach(kka => {
           kka.aspects.forEach(aspect => {
@@ -341,22 +376,60 @@ class AssessmentController {
           });
         });
 
+        const responseFactorIds = value.responses
+          .map((r) => idMapping.factor[r.factor_id])
+          .filter(Boolean);
+
+        if (responseFactorIds.length) {
+          const missingEvidence = await manualAssessmentService.getManualFactorsMissingEvidence(
+            value.assessment_id,
+            responseFactorIds,
+            req.user.id,
+            req.user.unit_bidang_id
+          );
+
+          if (missingEvidence.length) {
+            return res.status(400).json(errorResponse(
+              'Evidence required before submitting scores',
+              'EVIDENCE_REQUIRED',
+              missingEvidence
+            ));
+          }
+        }
+
         const results = await manualAssessmentService.submitManualResponses(
           value.assessment_id,
           value.responses,
           idMapping,
           userId
         );
-        
+
         res.json(successResponse(results, 'Manual responses processed successfully'));
       } else {
-        // Handle regular assessment responses
+        const factorIds = value.responses.map((r) => r.factor_id);
+        if (factorIds.length) {
+          const missingEvidence = await assessmentService.getFactorsMissingEvidence(
+            value.assessment_id,
+            factorIds,
+            req.user.id,
+            req.user.unit_bidang_id
+          );
+
+          if (missingEvidence.length) {
+            return res.status(400).json(errorResponse(
+              'Evidence required before submitting scores',
+              'EVIDENCE_REQUIRED',
+              missingEvidence
+            ));
+          }
+        }
+
         const results = await assessmentService.bulkUpsertResponses(
-          value.assessment_id, 
-          value.responses, 
+          value.assessment_id,
+          value.responses,
           userId
         );
-        
+
         res.json(successResponse(results, 'Bulk responses processed successfully'));
       }
     } catch (error) {
@@ -506,6 +579,161 @@ class AssessmentController {
       } else {
         res.status(500).json(errorResponse('Failed to create assessment from template', 'INTERNAL_ERROR'));
       }
+    }
+  }
+
+  // Get data needed for creating new assessment
+  async getNewAssessmentData(req, res) {
+    try {
+      // Get dictionary data for new assessment
+      const [kkas, aspects, parameters, factors] = await Promise.all([
+        dictionaryRepository.findAllKKA(),
+        dictionaryRepository.findAllAspects(),
+        dictionaryRepository.findAllParameters(),
+        dictionaryRepository.findAllFactors()
+      ]);
+
+      res.json({
+        status: 'success',
+        data: {
+          kkas: kkas || [],
+          aspects: aspects || [],
+          parameters: parameters || [],
+          factors: factors || [],
+          aois: []
+        },
+        message: 'New assessment data retrieved successfully'
+      });
+    } catch (error) {
+      logger.error('Error in getNewAssessmentData:', error);
+      res.status(500).json(errorResponse('Failed to retrieve new assessment data', 'INTERNAL_ERROR'));
+    }
+  }
+
+  async getPICAssessments(req, res) {
+    try {
+      const userId = req.user.id;
+      const assessments = await picAssignmentService.getPICAssessments(userId);
+      res.json(successResponse(assessments, 'PIC assessments retrieved successfully'));
+    } catch (error) {
+      logger.error('Error in getPICAssessments controller:', error);
+      res.status(500).json(errorResponse('Failed to retrieve PIC assessments', 'INTERNAL_ERROR'));
+    }
+  }
+
+  // Assessment Review Controllers
+  async acceptAssessment(req, res) {
+    try {
+      const { assessmentId } = req.params;
+      const db = getConnection();
+
+      // Pastikan semua assignment PIC untuk assessment ini statusnya 'submitted'
+      const items = await db('pic_map').where('assessment_id', assessmentId);
+      const allSubmitted = items.length > 0 && items.every(it => it.status === 'submitted');
+      if (!allSubmitted) {
+        return res.status(400).json(errorResponse('All PIC assignments must be submitted before accept', 'INVALID_STATE'));
+      }
+
+      // Hitung skor akhir (kalau perlu) lalu set assessment -> 'completed'
+      await db('assessment').where('id', assessmentId).update({
+        status: 'completed',
+        updated_at: new Date(),
+      });
+
+      return res.json(successResponse({ assessmentId }, 'Assessment accepted & completed'));
+    } catch (err) {
+      logger.error('Error in acceptAssessment:', err);
+      return res.status(500).json(errorResponse('Failed to accept assessment', 'INTERNAL_ERROR'));
+    }
+  }
+
+  async rejectAssessment(req, res) {
+    try {
+      const { assessmentId } = req.params;
+      const { note } = req.body || {};
+      const db = getConnection();
+
+      // Saat reject: ubah semua assignment yang 'submitted' kembali ke 'needs_revision'
+      await db('pic_map').where({ assessment_id: assessmentId, status: 'submitted' })
+        .update({ status: 'needs_revision', updated_at: new Date() });
+
+      // Opsional: simpan catatan revisi
+      if (note) {
+        await db('assessment_revisions').insert({
+          id: randomUUID(),
+          assessment_id: assessmentId,
+          reason: 'Revision requested',
+          notes: note,
+          requested_by: req.user.id,
+          status: 'pending',
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+      }
+
+      // Assessment tetap di 'in_progress' saat reject
+      await db('assessment').where('id', assessmentId).update({
+        status: 'in_progress',
+        updated_at: new Date(),
+      });
+
+      return res.json(successResponse({ assessmentId }, 'Assessment rejected, awaiting revision'));
+    } catch (err) {
+      logger.error('Error in rejectAssessment:', err);
+      return res.status(500).json(errorResponse('Failed to reject assessment', 'INTERNAL_ERROR'));
+    }
+  }
+
+  async updateManualAssessment(req, res) {
+    try {
+      const { assessmentId } = req.params;
+      const payload = req.body;
+      const userId = req.user.id;
+
+      const result = await manualAssessmentService.updateManualAssessment(assessmentId, payload, userId);
+
+      // Return with same format as create for consistency
+      res.json(successResponse({
+        assessment: { id: assessmentId },
+        idMapping: result.hierarchy || { kkas: [], aspects: [], parameters: [], factors: [] }
+      }, 'Assessment updated successfully'));
+    } catch (error) {
+      logger.error('Error in updateManualAssessment controller:', error);
+      const message = process.env.NODE_ENV === 'development' ? error.message : 'Failed to update assessment';
+      res.status(500).json(errorResponse(message, 'INTERNAL_ERROR'));
+    }
+  }
+
+  /**
+   * Export assessment to Excel
+   */
+  async exportToExcel(req, res) {
+    try {
+      const { id } = req.params;
+
+      // Check if assessment exists
+      const db = getConnection();
+      const assessment = await db('assessment').where('id', id).first();
+
+      if (!assessment) {
+        return res.status(404).json(errorResponse('Assessment not found', 'NOT_FOUND'));
+      }
+
+      // Generate Excel
+      const excelService = new ExcelService(db);
+      const buffer = await excelService.exportAssessmentToExcel(id);
+
+      // Set headers for file download
+      const filename = `Assessment_${assessment.title.replace(/[^a-z0-9]/gi, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', buffer.length);
+
+      res.send(buffer);
+    } catch (error) {
+      logger.error('Error exporting assessment to Excel:', error);
+      res.status(500).json(errorResponse('Failed to export assessment', 'EXPORT_ERROR'));
     }
   }
 }

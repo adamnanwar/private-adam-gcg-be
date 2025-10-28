@@ -6,7 +6,7 @@
 // Assessment Entity
 const assessmentEntity = {
   id: 'uuid',
-  organization_name: 'string',
+  title: 'string',
   assessment_date: 'date',
   assessor_id: 'uuid', // Foreign key to User
   status: 'string', // 'draft', 'in_progress', 'completed', 'reviewed'
@@ -45,14 +45,14 @@ const assessmentResultEntity = {
 
 // DTOs for API operations
 const createAssessmentDto = {
-  organization_name: 'string',
+  title: 'string',
   assessment_date: 'date',
   assessor_id: 'uuid',
   notes: 'string'
 };
 
 const updateAssessmentDto = {
-  organization_name: 'string',
+  title: 'string',
   assessment_date: 'date',
   assessor_id: 'uuid',
   status: 'string',
@@ -80,14 +80,16 @@ const bulkResponseDto = {
 const ASSESSMENT_STATUS = {
   DRAFT: 'draft',
   IN_PROGRESS: 'in_progress',
-  COMPLETED: 'completed',
-  REVIEWED: 'reviewed'
+  SUBMITTED: 'submitted',
+  UNDER_REVIEW: 'under_review',
+  REVISION_REQUIRED: 'revision_required',
+  COMPLETED: 'completed'
 };
 
 // Assessment Summary DTO
 const assessmentSummaryDto = {
   assessment_id: 'uuid',
-  organization_name: 'string',
+  title: 'string',
   assessment_date: 'date',
   assessor_name: 'string',
   status: 'string',

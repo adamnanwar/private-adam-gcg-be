@@ -1,4 +1,112 @@
-node_modules
+# Dependencies
 node_modules/
-vendor
+node_modules
 vendor/
+vendor
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+*.log.*
+
+# Testing files
+*-test.js
+*test.js
+test-*.js
+simple-test.js
+comprehensive-test.js
+manual-system-test.js
+verify-system.js
+direct-user-email.js
+reactivate-test-unit.js
+
+# Documentation (keep only main README.md)
+*_REPORT.md
+*_SUMMARY.md
+*_GUIDE.md
+*_DOCUMENT*.md
+*_INSTRUCTIONS.md
+*_STATUS.md
+CHAT_*.md
+DEBUG_*.md
+FIX_*.md
+FINAL_*.md
+COMPREHENSIVE_*.md
+DEPLOYMENT_*.md
+MIGRATION_*.md
+QUICK-START*.md
+RECOMMENDATION_*.md
+TROUBLESHOOTING_*.md
+WORKFLOW_*.md
+EVIDENCE_*.md
+ASSESSMENT_*.md
+RATE_LIMITING_*.md
+ALL_FIXES_*.md
+SYSTEM_*.md
+run-system-manual.md
+ADMIN_ACCESS_RULES.md
+
+# SQL files (manual/test)
+create-user-final.sql
+create-user-sql.sql
+setup-assessment-tables.sql
+fix_*.sql
+create-test-user.sql
+
+# Shell scripts (manual/test)
+curl-test.sh
+server-fix-commands.sh
+start-pm2.sh
+stop-pm2.sh
+ultra-simple.sh
+
+# Batch files
+start-pm2.bat
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-*
+.history/
+
+# Build outputs
+dist/
+build/
+coverage/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Upload files (keep structure, ignore content)
+uploads/*
+!uploads/.gitkeep
+
+# PM2
+.pm2/
+ecosystem.config.js
+
+# Database dumps
+*.dump
+*.backup
+
+# Lock files (optional - uncomment if needed)
+# package-lock.json
+# yarn.lock

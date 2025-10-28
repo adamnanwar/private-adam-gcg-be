@@ -1,5 +1,5 @@
 const { db } = require('../../config/database');
-const logger = require('../../utils/logger');
+const logger = require('../../utils/logger-simple');
 
 class AssessmentRepository {
   constructor() {
@@ -7,43 +7,89 @@ class AssessmentRepository {
   }
 
   // Assessment Methods
-  async findAllAssessments(limit = 50, offset = 0, search = '', status = '', assessorId = '') {
+  async findAllAssessments(limit = 50, offset = 0, search = '', status = '', assessorId = '', userUnitId = null) {
     try {
-      // Get unique assessments from assessment_kka table
-      let query = this.db('assessment_kka')
+      // Use the new assessment table directly with PIC data and FUK scores
+      let query = this.db('assessment')
         .select(
-          'assessment_kka.assessment_id',
-          'assessment_kka.kode as manual_kka_kode',
-          'assessment_kka.nama as manual_kka_nama',
-          'assessment_kka.created_at',
-          'assessment_kka.updated_at'
+          'assessment.*',
+          'users.name as assessor_name',
+          'users.email as assessor_email'
         )
-        .distinct('assessment_kka.assessment_id')
-        .orderBy('assessment_kka.created_at', 'desc');
+        .leftJoin('users', 'assessment.assessor_id', 'users.id')
+        .orderBy('assessment.created_at', 'desc');
       
       if (search) {
         query = query.where(function() {
-          this.where('assessment_kka.kode', 'ilike', `%${search}%`)
-            .orWhere('assessment_kka.nama', 'ilike', `%${search}%`);
+          this.where('assessment.title', 'ilike', `%${search}%`)
+            .orWhere('users.name', 'ilike', `%${search}%`);
         });
       }
-      
+
+      if (status) {
+        query = query.where('assessment.status', status);
+      }
+
+      if (assessorId) {
+        query = query.where('assessment.assessor_id', assessorId);
+      }
+
+      // Filter by user unit - user can only see assessments where their unit is assigned as PIC
+      if (userUnitId) {
+        query = query.whereExists(function() {
+          this.select('*')
+            .from('pic_map')
+            .whereRaw('pic_map.assessment_id = assessment.id')
+            .andWhere('pic_map.unit_bidang_id', userUnitId);
+        });
+      }
+
       const assessments = await query
         .limit(limit)
         .offset(offset);
 
-      // For now, return basic structure - we can enhance this later
-      return assessments.map(assessment => ({
-        id: assessment.assessment_id,
-        organization_name: assessment.manual_kka_nama || 'N/A',
-        status: 'draft', // Default status since we don't have it in assessment_* tables
-        created_at: assessment.created_at,
-        updated_at: assessment.updated_at,
-        manual_kka_kode: assessment.manual_kka_kode,
-        manual_kka_nama: assessment.manual_kka_nama,
-        assessor_name: 'N/A', // We'll need to get this from users table if needed
-        assessor_email: 'N/A'
-      }));
+      // Add FUK scores and PIC data to each assessment
+      const assessmentsWithFUK = await Promise.all(
+        assessments.map(async (assessment) => {
+          try {
+            const results = await this.calculateAssessmentResults(assessment.id);
+
+            // Get PICs assigned to this assessment
+            const pics = await this.db('pic_map')
+              .select(
+                'unit_bidang.id as unit_id',
+                'unit_bidang.nama as unit_nama',
+                'unit_bidang.kode as unit_kode'
+              )
+              .leftJoin('unit_bidang', 'pic_map.unit_bidang_id', 'unit_bidang.id')
+              .where('pic_map.assessment_id', assessment.id)
+              .groupBy('unit_bidang.id', 'unit_bidang.nama', 'unit_bidang.kode');
+
+            return {
+              ...assessment,
+              overall_fuk: results.overall_fuk,
+              overall_score: results.overall_score,
+              completion_percentage: results.completion_percentage,
+              total_factors: results.total_factors,
+              completed_factors: results.completed_factors,
+              pics: pics || []
+            };
+          } catch (error) {
+            logger.warn(`Could not calculate FUK for assessment ${assessment.id}:`, error.message);
+            return {
+              ...assessment,
+              overall_fuk: null,
+              overall_score: null,
+              completion_percentage: 0,
+              total_factors: 0,
+              completed_factors: 0,
+              pics: []
+            };
+          }
+        })
+      );
+
+      return assessmentsWithFUK;
     } catch (error) {
       logger.error('Error finding assessments:', error);
       throw error;
@@ -61,8 +107,92 @@ class AssessmentRepository {
         .leftJoin('users', 'assessment.assessor_id', 'users.id')
         .where('assessment.id', id)
         .first();
-      
-      return assessment;
+
+      if (!assessment) {
+        return null;
+      }
+
+      const kkas = await this.db('kka')
+        .where('assessment_id', id)
+        .andWhere(function () {
+          this.whereNull('is_active').orWhere('is_active', true);
+        })
+        .orderBy([{ column: 'sort', order: 'asc' }, { column: 'created_at', order: 'asc' }]);
+
+      if (!kkas.length) {
+        return { ...assessment, kkas: [] };
+      }
+
+      const kkaIds = kkas.map((kka) => kka.id);
+
+      const aspects = await this.db('aspect')
+        .whereIn('kka_id', kkaIds)
+        .andWhere(function () {
+          this.whereNull('is_active').orWhere('is_active', true);
+        })
+        .orderBy([{ column: 'sort', order: 'asc' }, { column: 'created_at', order: 'asc' }]);
+
+      const aspectIds = aspects.map((aspect) => aspect.id);
+
+      const parameters = aspectIds.length
+        ? await this.db('parameter')
+            .whereIn('aspect_id', aspectIds)
+            .andWhere(function () {
+              this.whereNull('is_active').orWhere('is_active', true);
+            })
+            .orderBy([{ column: 'sort', order: 'asc' }, { column: 'created_at', order: 'asc' }])
+        : [];
+
+      const parameterIds = parameters.map((parameter) => parameter.id);
+
+      const factors = parameterIds.length
+        ? await this.db('factor')
+            .whereIn('parameter_id', parameterIds)
+            .andWhere(function () {
+              this.whereNull('is_active').orWhere('is_active', true);
+            })
+            .orderBy([{ column: 'sort', order: 'asc' }, { column: 'created_at', order: 'asc' }])
+        : [];
+
+      const factorsByParameter = factors.reduce((acc, factor) => {
+        if (!acc[factor.parameter_id]) {
+          acc[factor.parameter_id] = [];
+        }
+        acc[factor.parameter_id].push(factor);
+        return acc;
+      }, {});
+
+      const parametersByAspect = parameters.reduce((acc, parameter) => {
+        if (!acc[parameter.aspect_id]) {
+          acc[parameter.aspect_id] = [];
+        }
+        acc[parameter.aspect_id].push({
+          ...parameter,
+          factors: factorsByParameter[parameter.id] || []
+        });
+        return acc;
+      }, {});
+
+      const aspectsByKka = aspects.reduce((acc, aspect) => {
+        if (!acc[aspect.kka_id]) {
+          acc[aspect.kka_id] = [];
+        }
+        acc[aspect.kka_id].push({
+          ...aspect,
+          parameters: parametersByAspect[aspect.id] || []
+        });
+        return acc;
+      }, {});
+
+      const kkaWithHierarchy = kkas.map((kka) => ({
+        ...kka,
+        aspects: aspectsByKka[kka.id] || []
+      }));
+
+      return {
+        ...assessment,
+        kkas: kkaWithHierarchy
+      };
     } catch (error) {
       logger.error('Error finding assessment by ID:', error);
       throw error;
@@ -74,7 +204,7 @@ class AssessmentRepository {
       const [assessment] = await this.db('assessment')
         .insert({
           ...assessmentData,
-          id: require('uuid').v4(),
+          id: require('crypto').randomUUID(),
           created_at: new Date(),
           updated_at: new Date()
         })
@@ -106,33 +236,59 @@ class AssessmentRepository {
 
   async deleteAssessment(id) {
     try {
-      // Check if assessment has responses
-      const responseCount = await this.db('response').where('assessment_id', id).count('* as count').first();
-      if (parseInt(responseCount.count) > 0) {
-        throw new Error('Cannot delete assessment with existing responses');
-      }
-      
-      const deleted = await this.db('assessment').where('id', id).del();
-      return deleted > 0;
+      await this.db.transaction(async (trx) => {
+        await trx('response').where('assessment_id', id).del();
+        await trx('aoi').where('assessment_id', id).del();
+        await trx('factor').where('assessment_id', id).del();
+        await trx('parameter').where('assessment_id', id).del();
+        await trx('aspect').where('assessment_id', id).del();
+        await trx('kka').where('assessment_id', id).del();
+        await trx('pic_map')
+          .where('target_type', 'assessment')
+          .andWhere('target_id', id)
+          .del();
+        await trx('assessment').where('id', id).del();
+      });
+
+      return true;
     } catch (error) {
       logger.error('Error deleting assessment:', error);
       throw error;
     }
   }
 
-  async countAssessments(search = '', status = '', assessorId = '') {
+  async countAssessments(search = '', status = '', assessorId = '', userUnitId = null) {
     try {
-      let query = this.db('assessment_kka').countDistinct('assessment_id as count');
+      let query = this.db('assessment')
+        .leftJoin('users', 'assessment.assessor_id', 'users.id');
       
       if (search) {
         query = query.where(function() {
-          this.where('kode', 'ilike', `%${search}%`)
-            .orWhere('nama', 'ilike', `%${search}%`);
+          this.where('assessment.title', 'ilike', `%${search}%`)
+            .orWhere('users.name', 'ilike', `%${search}%`);
         });
       }
-      
-      const result = await query.first();
-      return parseInt(result.count);
+
+      if (status) {
+        query = query.where('assessment.status', status);
+      }
+
+      if (assessorId) {
+        query = query.where('assessment.assessor_id', assessorId);
+      }
+
+      // Filter by user unit - user can only see assessments where their unit is assigned as PIC
+      if (userUnitId) {
+        query = query.whereExists(function() {
+          this.select('*')
+            .from('pic_map')
+            .whereRaw('pic_map.assessment_id = assessment.id')
+            .andWhere('pic_map.unit_bidang_id', userUnitId);
+        });
+      }
+
+      const result = await query.count('assessment.id as count').first();
+      return parseInt(result.count) || 0;
     } catch (error) {
       logger.error('Error counting assessments:', error);
       throw error;
@@ -142,7 +298,7 @@ class AssessmentRepository {
   // Response Methods
   async findResponsesByAssessment(assessmentId) {
     try {
-      return await this.db('response')
+      const responses = await this.db('response')
         .select(
           'response.*',
           'factor.kode as factor_kode',
@@ -165,10 +321,68 @@ class AssessmentRepository {
         .leftJoin('kka', 'aspect.kka_id', 'kka.id')
         .leftJoin('users', 'response.created_by', 'users.id')
         .where('response.assessment_id', assessmentId)
-        .orderBy('kka.created_at', 'asc')
+        .orderBy('kka.sort', 'asc')
         .orderBy('aspect.sort', 'asc')
         .orderBy('parameter.sort', 'asc')
         .orderBy('factor.sort', 'asc');
+
+      // Group responses by aspect to add evidence
+      const responsesByAspect = {};
+      responses.forEach(response => {
+        if (!responsesByAspect[response.aspect_id]) {
+          responsesByAspect[response.aspect_id] = {
+            aspect_id: response.aspect_id,
+            aspect_kode: response.aspect_kode,
+            aspect_nama: response.aspect_nama,
+            aspect_weight: response.aspect_weight,
+            evidence: [], // Will be populated below
+            parameters: {}
+          };
+        }
+
+        if (!responsesByAspect[response.aspect_id].parameters[response.parameter_id]) {
+          responsesByAspect[response.aspect_id].parameters[response.parameter_id] = {
+            parameter_id: response.parameter_id,
+            parameter_kode: response.parameter_kode,
+            parameter_nama: response.parameter_nama,
+            parameter_weight: response.parameter_weight,
+            factors: []
+          };
+        }
+
+        responsesByAspect[response.aspect_id].parameters[response.parameter_id].factors.push(response);
+      });
+
+      // Fetch evidence for each aspect
+      for (const aspectId in responsesByAspect) {
+        if (aspectId && aspectId !== 'undefined') {
+          const evidence = await this.db('evidence')
+            .where({
+              target_type: 'aspect', // Updated target type
+              target_id: aspectId
+            })
+            .select('*');
+          
+          responsesByAspect[aspectId].evidence = evidence;
+        } else {
+          responsesByAspect[aspectId].evidence = [];
+        }
+      }
+
+      // Convert back to flat structure with evidence
+      const responsesWithEvidence = [];
+      Object.values(responsesByAspect).forEach(aspect => {
+        Object.values(aspect.parameters).forEach(parameter => {
+          parameter.factors.forEach(factor => {
+            responsesWithEvidence.push({
+              ...factor,
+              aspect_evidence: aspect.evidence
+            });
+          });
+        });
+      });
+
+      return responsesWithEvidence;
     } catch (error) {
       logger.error('Error finding responses by assessment:', error);
       throw error;
@@ -216,7 +430,7 @@ class AssessmentRepository {
       const [response] = await this.db('response')
         .insert({
           ...responseData,
-          id: require('uuid').v4(),
+          id: require('crypto').randomUUID(),
           created_at: new Date(),
           updated_at: new Date()
         })
@@ -478,14 +692,28 @@ class AssessmentRepository {
   // Get assessment statistics
   async getAssessmentStats(assessorId = '') {
     try {
-      // Since we're now using assessment_* tables, we'll return basic stats
-      // This can be enhanced later to count from assessment_kka table
+      const query = this.db('assessment').whereNotNull('id');
+
+      if (assessorId) {
+        query.andWhere(builder => {
+          builder.where('assessor_id', assessorId).orWhere('created_by', assessorId);
+        });
+      }
+
+      const rows = await query.select('status').count({ count: '*' }).groupBy('status');
+      const totalRow = await query.clone().count({ total: '*' }).first();
+
+      const statusCount = rows.reduce((result, row) => {
+        result[row.status || 'unknown'] = Number(row.count);
+        return result;
+      }, {});
+
       return {
-        total_assessments: 0,
-        draft_count: 0,
-        in_progress_count: 0,
-        completed_count: 0,
-        reviewed_count: 0
+        total_assessments: Number(totalRow?.total || 0),
+        draft_count: statusCount.draft || 0,
+        in_progress_count: statusCount.in_progress || 0,
+        completed_count: statusCount.completed || 0,
+        reviewed_count: statusCount.reviewed || statusCount.under_review || 0
       };
     } catch (error) {
       logger.error('Error getting assessment stats:', error);

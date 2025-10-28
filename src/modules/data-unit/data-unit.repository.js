@@ -12,7 +12,7 @@ class DataUnitRepository {
     const { page = 1, limit = 100, search = '', sortBy = 'nama', sortOrder = 'asc' } = options;
     const offset = (page - 1) * limit;
 
-    let query = this.db('data_unit')
+    let query = this.db('unit_bidang')
       .where('is_active', true);
 
     if (search) {
@@ -42,7 +42,7 @@ class DataUnitRepository {
   }
 
   async findById(id) {
-    const data = await this.db('data_unit')
+    const data = await this.db('unit_bidang')
       .where('id', id)
       .where('is_active', true)
       .first();
@@ -51,7 +51,7 @@ class DataUnitRepository {
   }
 
   async findByKode(kode) {
-    const data = await this.db('data_unit')
+    const data = await this.db('unit_bidang')
       .where('kode', kode)
       .where('is_active', true)
       .first();
@@ -60,7 +60,7 @@ class DataUnitRepository {
   }
 
   async create(dataUnitData) {
-    const [id] = await this.db('data_unit')
+    const [id] = await this.db('unit_bidang')
       .insert(dataUnitData)
       .returning('id');
 
@@ -68,7 +68,7 @@ class DataUnitRepository {
   }
 
   async update(id, dataUnitData) {
-    await this.db('data_unit')
+    await this.db('unit_bidang')
       .where('id', id)
       .update({
         ...dataUnitData,
@@ -80,7 +80,7 @@ class DataUnitRepository {
 
   async delete(id) {
     // Soft delete by setting is_active to false
-    await this.db('data_unit')
+    await this.db('unit_bidang')
       .where('id', id)
       .update({
         is_active: false,
@@ -91,7 +91,7 @@ class DataUnitRepository {
   }
 
   async hardDelete(id) {
-    await this.db('data_unit')
+    await this.db('unit_bidang')
       .where('id', id)
       .del();
 
@@ -99,7 +99,7 @@ class DataUnitRepository {
   }
 
   async findActive() {
-    const data = await this.db('data_unit')
+    const data = await this.db('unit_bidang')
       .where('is_active', true)
       .orderBy('nama', 'asc');
 
@@ -108,6 +108,9 @@ class DataUnitRepository {
 }
 
 module.exports = DataUnitRepository;
+
+
+
 
 
 

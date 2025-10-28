@@ -1,7 +1,7 @@
 /**
  * AOI Repository - Using assessment_* tables schema
  */
-const { AOI } = require('./aoi.entity');
+const AOI = require('./aoi.entity');
 
 class AOIRepository {
   constructor(db) {
@@ -9,29 +9,25 @@ class AOIRepository {
   }
 
   async findAllAOI(options = {}) {
-    const { page = 1, limit = 100, search = '', status = '', assessment_id = '' } = options;
-    const offset = (page - 1) * limit;
+    const { page = 1, limit = 10, search = '', status = '', assessment_id = '', userUnitId = null, isAdmin = false } = options;
+    const offset = Math.max(0, (parseInt(page) - 1) * parseInt(limit));
 
     let query = this.db('aoi')
       .select(
         'aoi.*',
         'users.name as created_by_name',
-        'assessment.organization_name as assessment_name',
-        'pic_user.name as pic_name',
-        'pic_user.email as pic_email'
+        'assessment.title as assessment_name',
+        'pic_users.name as pic_name',
+        'pic_users.email as pic_email'
       )
       .leftJoin('users', 'aoi.created_by', 'users.id')
       .leftJoin('assessment', 'assessment.id', 'aoi.assessment_id')
-      .leftJoin('pic_map', function() {
-        this.on('pic_map.target_type', '=', 'aoi.target_type')
-          .andOn('pic_map.target_id', '=', 'aoi.target_id');
-      })
-      .leftJoin('users as pic_user', 'pic_map.pic_user_id', 'pic_user.id');
+      .leftJoin('users as pic_users', 'aoi.pic_user_id', 'pic_users.id');
 
     if (search) {
       query = query.where(function() {
         this.where('aoi.recommendation', 'ilike', `%${search}%`)
-          .orWhere('assessment.organization_name', 'ilike', `%${search}%`);
+          .orWhere('assessment.title', 'ilike', `%${search}%`);
       });
     }
 
@@ -43,20 +39,25 @@ class AOIRepository {
       query = query.where('aoi.assessment_id', assessment_id);
     }
 
+    // Filter by user unit - ONLY apply for non-admin users
+    if (userUnitId && !isAdmin) {
+      query = query.whereExists(function() {
+        this.select('*')
+          .from('pic_map as pm')
+          .where('pm.assessment_id', this.ref('aoi.assessment_id'))
+          .andWhere('pm.unit_bidang_id', userUnitId);
+      });
+    }
+
     const totalResult = await this.db('aoi')
       .select(this.db.raw('COUNT(*) as count'))
       .leftJoin('users', 'aoi.created_by', 'users.id')
       .leftJoin('assessment', 'assessment.id', 'aoi.assessment_id')
-      .leftJoin('pic_map', function() {
-        this.on('pic_map.target_type', '=', 'aoi.target_type')
-          .andOn('pic_map.target_id', '=', 'aoi.target_id');
-      })
-      .leftJoin('users as pic_user', 'pic_map.pic_user_id', 'pic_user.id')
       .modify(function(queryBuilder) {
         if (search) {
           queryBuilder.where(function() {
             this.where('aoi.recommendation', 'ilike', `%${search}%`)
-              .orWhere('assessment.organization_name', 'ilike', `%${search}%`);
+              .orWhere('assessment.title', 'ilike', `%${search}%`);
           });
         }
         if (status) {
@@ -65,18 +66,44 @@ class AOIRepository {
         if (assessment_id) {
           queryBuilder.where('aoi.assessment_id', assessment_id);
         }
+        // Apply same filter for count - ONLY for non-admin
+        if (userUnitId && !isAdmin) {
+          queryBuilder.whereExists(function() {
+            this.select('*')
+              .from('pic_map as pm')
+              .where('pm.assessment_id', this.ref('aoi.assessment_id'))
+              .andWhere('pm.unit_bidang_id', userUnitId);
+          });
+        }
       })
       .first();
     
     const total = totalResult.count;
     
-    const data = await query
+    const aoiResults = await query
       .orderBy('aoi.created_at', 'desc')
-      .limit(limit)
+      .limit(parseInt(limit))
       .offset(offset);
 
+    // Fetch evidence for each AOI
+    const aoiWithEvidence = await Promise.all(
+      aoiResults.map(async (aoi) => {
+        const evidence = await this.db('evidence')
+          .where({
+            target_type: 'aoi',
+            target_id: aoi.id
+          })
+          .select('*');
+        
+        return {
+          ...aoi,
+          evidence: evidence
+        };
+      })
+    );
+
     return {
-      data: data.map(item => AOI.fromDatabase(item)),
+      data: aoiWithEvidence.map(item => AOI.fromDatabase(item)),
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -91,39 +118,73 @@ class AOIRepository {
       .select(
         'aoi.*',
         'users.name as created_by_name',
-        'assessment.organization_name as assessment_name',
-        'pic_user.name as pic_name',
-        'pic_user.email as pic_email'
+        'assessment.title as assessment_name',
+        'pic_users.name as pic_name',
+        'pic_users.email as pic_email'
       )
       .leftJoin('users', 'aoi.created_by', 'users.id')
       .leftJoin('assessment', 'assessment.id', 'aoi.assessment_id')
-      .leftJoin('pic_map', function() {
-        this.on('pic_map.target_type', '=', 'aoi.target_type')
-          .andOn('pic_map.target_id', '=', 'aoi.target_id');
-      })
-      .leftJoin('users as pic_user', 'pic_map.pic_user_id', 'pic_user.id')
+      .leftJoin('users as pic_users', 'aoi.pic_user_id', 'pic_users.id')
       .where('aoi.id', id)
       .first();
 
-    return data ? AOI.fromDatabase(data) : null;
+    if (!data) return null;
+
+    // Fetch evidence for this AOI
+    const evidence = await this.db('evidence')
+      .where({
+        target_type: 'aoi',
+        target_id: data.id
+      })
+      .select('*');
+
+    return AOI.fromDatabase({
+      ...data,
+      evidence
+    });
   }
 
-  async findAOIByAssessment(assessmentId) {
-    const data = await this.db('aoi')
+  async findAOIByAssessment(assessmentId, user) {
+    let query = this.db('aoi')
       .select(
         'aoi.*',
-        'users.name as created_by_name',
-        'pic_user.name as pic_name',
-        'pic_user.email as pic_email'
+        'users.name as created_by_name'
       )
       .leftJoin('users', 'aoi.created_by', 'users.id')
-      .leftJoin('pic_map', function() {
-        this.on('pic_map.target_type', '=', 'aoi.target_type')
-          .andOn('pic_map.target_id', '=', 'aoi.target_id');
-      })
-      .leftJoin('users as pic_user', 'pic_map.pic_user_id', 'pic_user.id')
       .where('aoi.assessment_id', assessmentId)
       .orderBy('aoi.created_at', 'desc');
+
+    if (user && user.role !== 'admin') {
+      query = query.where(builder => {
+        builder
+          .where('aoi.created_by', user.id)
+          .orWhereExists(function() {
+            this.select('*')
+              .from('pic_map')
+              .where('pic_map.assessment_id', assessmentId)
+              .andWhere('pic_map.target_type', 'aoi')
+              .andWhere('pic_map.target_id', this.ref('aoi.id'))
+              .andWhere(inner => {
+                inner
+                  .where('pic_map.pic_user_id', user.id)
+                  .orWhere('pic_map.unit_bidang_id', user.unit_bidang_id || null);
+              });
+          })
+          .orWhereExists(function() {
+            this.select('*')
+              .from('pic_map')
+              .where('pic_map.assessment_id', assessmentId)
+              .andWhere('pic_map.target_type', 'factor')
+              .andWhere(inner => {
+                inner
+                  .where('pic_map.pic_user_id', user.id)
+                  .orWhere('pic_map.unit_bidang_id', user.unit_bidang_id || null);
+              });
+          });
+      });
+    }
+
+    const data = await query;
 
     return data.map(item => AOI.fromDatabase(item));
   }
@@ -133,17 +194,16 @@ class AOIRepository {
       .select(
         'aoi.*',
         'users.name as created_by_name',
-        'assessment.organization_name as assessment_name',
+        'assessment.title as assessment_name',
         'pic_user.name as pic_name',
         'pic_user.email as pic_email'
       )
       .leftJoin('users', 'aoi.created_by', 'users.id')
       .leftJoin('assessment', 'assessment.id', 'aoi.assessment_id')
       .leftJoin('pic_map', function() {
-        this.on('pic_map.target_type', '=', 'aoi.target_type')
-          .andOn('pic_map.target_id', '=', 'aoi.target_id');
+        this.on('pic_map.assessment_id', '=', 'aoi.assessment_id');
       })
-      .leftJoin('users as pic_user', 'pic_map.pic_user_id', 'pic_user.id')
+      .leftJoin('users as pic_user', 'aoi.pic_user_id', 'pic_user.id')
       .where({
         'aoi.target_type': targetType,
         'aoi.target_id': targetId,
@@ -159,17 +219,16 @@ class AOIRepository {
       .select(
         'aoi.*',
         'users.name as created_by_name',
-        'assessment.organization_name as assessment_name',
+        'assessment.title as assessment_name',
         'pic_user.name as pic_name',
         'pic_user.email as pic_email'
       )
       .leftJoin('users', 'aoi.created_by', 'users.id')
       .leftJoin('assessment', 'assessment.id', 'aoi.assessment_id')
       .leftJoin('pic_map', function() {
-        this.on('pic_map.target_type', '=', 'aoi.target_type')
-          .andOn('pic_map.target_id', '=', 'aoi.target_id');
+        this.on('pic_map.assessment_id', '=', 'aoi.assessment_id');
       })
-      .leftJoin('users as pic_user', 'pic_map.pic_user_id', 'pic_user.id')
+      .leftJoin('users as pic_user', 'aoi.pic_user_id', 'pic_user.id')
       .where('aoi.id', id)
       .first();
 
@@ -177,9 +236,9 @@ class AOIRepository {
   }
 
   async createAOI(aoiData) {
-    const result = await this.db('aoi').insert(aoiData).returning('id');
-    const id = result[0]?.id || result[0];
-    return await this.findAOIById(id);
+    const result = await this.db('aoi').insert(aoiData).returning('*');
+    const aoi = result[0];
+    return AOI.fromDatabase(aoi);
   }
 
   async updateAOI(id, aoiData) {
@@ -198,14 +257,11 @@ class AOIRepository {
     try {
       let tableName;
       switch (targetType) {
-        case 'assessment_aspect':
-          tableName = 'assessment_aspect';
+        case 'parameter':
+          tableName = 'parameter';
           break;
-        case 'assessment_parameter':
-          tableName = 'assessment_parameter';
-          break;
-        case 'assessment_factor':
-          tableName = 'assessment_factor';
+        case 'factor':
+          tableName = 'factor';
           break;
         default:
           return false;
@@ -213,7 +269,7 @@ class AOIRepository {
 
       const result = await this.db(tableName)
         .where('id', targetId)
-        .where('assessment_id', assessmentId)
+        .where('is_active', true)
         .first();
 
       return !!result;

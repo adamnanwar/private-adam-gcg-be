@@ -13,14 +13,14 @@ module.exports = function(db) {
   // Apply auth middleware to all routes
   router.use(authenticateToken);
 
-  // GET /api/v1/data-units - Get all data units with pagination
-  router.get('/', requireRole(['admin', 'assessor']), controller.getAllDataUnits.bind(controller));
+  // GET /api/v1/data-units - Get all data units with pagination (admin and user)
+  router.get('/', requireRole(['admin', 'user']), controller.getAllDataUnits.bind(controller));
 
-  // GET /api/v1/data-units/active - Get active data units only
-  router.get('/active', requireRole(['admin', 'assessor', 'viewer', 'pic']), controller.getActiveDataUnits.bind(controller));
+  // GET /api/v1/data-units/active - Get active data units only (for PIC selection)
+  router.get('/active', requireRole(['admin', 'user']), controller.getActiveDataUnits.bind(controller));
 
-  // GET /api/v1/data-units/:id - Get data unit by ID
-  router.get('/:id', requireRole(['admin', 'assessor']), controller.getDataUnitById.bind(controller));
+  // GET /api/v1/data-units/:id - Get data unit by ID (admin and user)
+  router.get('/:id', requireRole(['admin', 'user']), controller.getDataUnitById.bind(controller));
 
   // POST /api/v1/data-units - Create new data unit
   router.post('/', requireRole(['admin']), controller.createDataUnit.bind(controller));

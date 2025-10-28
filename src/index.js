@@ -1,153 +1,136 @@
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const compression = require('compression');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const { testConnection, closeConnection, getConnection } = require('./config/database');
-const logger = require('./utils/logger-simple');
+const dotenv = require('dotenv');
+const path = require('path');
+
+// Import database
+const knex = require('knex');
+const knexConfig = require('../knexfile');
+
+// Import routes
+const { createAssessmentScoringRoutes } = require('./modules/assessment/assessment-scoring.routes');
+const { createEvidenceEnhancedRoutes } = require('./modules/evidence/evidence-enhanced.routes');
+const { createFactorEnhancedRoutes } = require('./modules/factor/factor-enhanced.routes');
+
+// Import existing routes
 const authRoutes = require('./modules/auth/routes');
-const dictionaryRoutes = require('./modules/dictionary/routes');
 const assessmentRoutes = require('./modules/assessment/routes');
-const aoiRoutes = require('./modules/aoi/routes');
-const userRoutes = require('./modules/user/routes');
+const picAssignmentRoutes = require('./modules/assessment/pic-assignment.routes');
+const evidenceRoutes = require('./modules/evidence/evidence.routes');
+const userRoutes = require('./modules/user/user.routes');
 const dataUnitRoutes = require('./modules/data-unit/routes');
+const dictionaryRoutes = require('./modules/dictionary/routes');
+const picRoutes = require('./modules/pic/pic.routes');
+const unitBidangRoutes = require('./modules/unit-bidang/unit-bidang.routes');
+const aoiRoutes = require('./modules/aoi/aoi.routes');
+const dashboardRoutes = require('./modules/dashboard/routes');
+const sk16Routes = require('./modules/master-data/sk16.routes');
+
+// Load environment variables
+dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 9001;
+
+// Initialize database
+const db = knex(knexConfig[process.env.NODE_ENV || 'production']);
 
 // Security middleware
 app.use(helmet());
-
-// CORS configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000', 'http://localhost:3001'],
+  credentials: true
 }));
 
-// Compression middleware
-app.use(compression());
+// Rate limiting - More lenient for development
+const limiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: process.env.NODE_ENV === 'production' ? 100 : 1000, // 1000 for dev, 100 for prod
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  skip: (req) => {
+    // Skip rate limiting for health check
+    return req.path === '/health';
+  }
+});
+app.use(limiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// Compression middleware
+app.use(compression());
+
 // Logging middleware
-app.use(morgan('combined', {
-  stream: {
-    write: (message) => logger.info(message.trim())
-  }
-}));
+app.use(morgan('combined'));
 
-// Rate limiting for auth endpoints
-const authLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
-  message: {
-    status: 'error',
-    message: 'Too many requests from this IP, please try again later.'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-app.use('/api/v1/auth', authLimiter);
+// Static files
+app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Health check endpoint
-app.get('/health', async (req, res) => {
-  try {
-    await testConnection();
-    res.json({
-      status: 'success',
-      message: 'Server is healthy',
-      timestamp: new Date().toISOString(),
-      uptime: process.uptime()
-    });
-  } catch (error) {
-    logger.error('Health check failed:', error);
-    res.status(503).json({
-      status: 'error',
-      message: 'Server health check failed',
-      timestamp: new Date().toISOString()
-    });
-  }
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
 });
 
-// Get database connection
-const db = getConnection();
+// API Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/assessments', assessmentRoutes);
+app.use('/api/assessments', createAssessmentScoringRoutes(db));
+app.use('/api/assessments', picAssignmentRoutes);
+app.use('/api/pic-assignments', picAssignmentRoutes);
+app.use('/api/evidence', evidenceRoutes);
+app.use('/api/evidence', createEvidenceEnhancedRoutes(db));
+app.use('/api/users', userRoutes);
+app.use('/api/data-units', dataUnitRoutes(db));
+app.use('/api/dictionary', dictionaryRoutes);
+app.use('/api/pic', picRoutes);
+app.use('/api/unit-bidang', unitBidangRoutes);
+app.use('/api/aoi', aoiRoutes);
+app.use('/api/factors', createFactorEnhancedRoutes(db));
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/email', require('./modules/email/email.routes'));
+app.use('/api/master-data/sk16', sk16Routes);
 
-// API routes
-app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/dictionary', dictionaryRoutes);
-app.use('/api/v1/assessments', assessmentRoutes);
-app.use('/api/v1/aoi', aoiRoutes(db));
-app.use('/api/v1/users', userRoutes);
-app.use('/api/v1/data-units', dataUnitRoutes(db));
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+  
+  if (err.type === 'entity.parse.failed') {
+    return res.status(400).json({
+      success: false,
+      message: 'Invalid JSON format'
+    });
+  }
+  
+  res.status(err.status || 500).json({
+    success: false,
+    message: err.message || 'Internal server error'
+  });
+});
 
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({
-    status: 'error',
-    message: `Route ${req.originalUrl} not found`
+    success: false,
+    message: 'Route not found'
   });
-});
-
-// Global error handler
-app.use((error, req, res, next) => {
-  logger.error('Unhandled error:', error);
-  
-  if (error.name === 'ValidationError') {
-    return res.status(400).json({
-      status: 'error',
-      message: 'Validation error',
-      details: error.details
-    });
-  }
-  
-  if (error.name === 'UnauthorizedError') {
-    return res.status(401).json({
-      status: 'error',
-      message: 'Unauthorized'
-    });
-  }
-  
-  res.status(500).json({
-    status: 'error',
-    message: 'Internal server error'
-  });
-});
-
-// Graceful shutdown
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  await closeConnection();
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  await closeConnection();
-  process.exit(0);
 });
 
 // Start server
-const server = app.listen(PORT, async () => {
-  try {
-    await testConnection();
-    logger.info(`Server running on port ${PORT}`);
-    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  } catch (err) {
-    logger.error('Failed to start server:', err);
-    process.exit(1);
-  }
-});
-
-server.on('error', (error) => {
-  logger.error('Server error:', error);
-  process.exit(1);
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📊 Health check: http://localhost:${PORT}/health`);
+  console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
 module.exports = app;

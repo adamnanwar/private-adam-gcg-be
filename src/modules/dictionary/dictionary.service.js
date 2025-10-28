@@ -1,5 +1,5 @@
 const dictionaryRepository = require('./dictionary.repository');
-const { logger } = require('../../utils/logger');
+const logger = require('../../utils/logger-simple');
 
 class DictionaryService {
   constructor() {
@@ -25,7 +25,7 @@ class DictionaryService {
         }
       };
     } catch (error) {
-      logger.error('Error in getAllKKA service:', error);
+      console.error('Error in getAllKKA service:', error);
       throw error;
     }
   }
@@ -38,7 +38,7 @@ class DictionaryService {
       }
       return kka;
     } catch (error) {
-      logger.error('Error in getKKAById service:', error);
+      console.error('Error in getKKAById service:', error);
       throw error;
     }
   }
@@ -62,10 +62,10 @@ class DictionaryService {
       }
 
       const kka = await this.repository.createKKA(kkaData);
-      logger.info(`KKA created: ${kka.id}`);
+      console.info(`KKA created: ${kka.id}`);
       return kka;
     } catch (error) {
-      logger.error('Error in createKKA service:', error);
+      console.error('Error in createKKA service:', error);
       throw error;
     }
   }
@@ -87,10 +87,10 @@ class DictionaryService {
       }
 
       const kka = await this.repository.updateKKA(id, kkaData);
-      logger.info(`KKA updated: ${id}`);
+      console.info(`KKA updated: ${id}`);
       return kka;
     } catch (error) {
-      logger.error('Error in updateKKA service:', error);
+      console.error('Error in updateKKA service:', error);
       throw error;
     }
   }
@@ -101,10 +101,10 @@ class DictionaryService {
       if (!deleted) {
         throw new Error('KKA not found or cannot be deleted');
       }
-      logger.info(`KKA deleted: ${id}`);
+      console.info(`KKA deleted: ${id}`);
       return { success: true, message: 'KKA deleted successfully' };
     } catch (error) {
-      logger.error('Error in deleteKKA service:', error);
+      console.error('Error in deleteKKA service:', error);
       throw error;
     }
   }
@@ -125,7 +125,7 @@ class DictionaryService {
         }
       };
     } catch (error) {
-      logger.error('Error in getAspectsByKKA service:', error);
+      console.error('Error in getAspectsByKKA service:', error);
       throw error;
     }
   }
@@ -138,7 +138,7 @@ class DictionaryService {
       }
       return aspect;
     } catch (error) {
-      logger.error('Error in getAspectById service:', error);
+      console.error('Error in getAspectById service:', error);
       throw error;
     }
   }
@@ -170,10 +170,10 @@ class DictionaryService {
       }
 
       const aspect = await this.repository.createAspect(aspectData);
-      logger.info(`Aspect created: ${aspect.id}`);
+      console.info(`Aspect created: ${aspect.id}`);
       return aspect;
     } catch (error) {
-      logger.error('Error in createAspect service:', error);
+      console.error('Error in createAspect service:', error);
       throw error;
     }
   }
@@ -195,10 +195,10 @@ class DictionaryService {
       }
 
       const aspect = await this.repository.updateAspect(id, aspectData);
-      logger.info(`Aspect updated: ${id}`);
+      console.info(`Aspect updated: ${id}`);
       return aspect;
     } catch (error) {
-      logger.error('Error in updateAspect service:', error);
+      console.error('Error in updateAspect service:', error);
       throw error;
     }
   }
@@ -209,10 +209,10 @@ class DictionaryService {
       if (!deleted) {
         throw new Error('Aspect not found or cannot be deleted');
       }
-      logger.info(`Aspect deleted: ${id}`);
+      console.info(`Aspect deleted: ${id}`);
       return { success: true, message: 'Aspect deleted successfully' };
     } catch (error) {
-      logger.error('Error in deleteAspect service:', error);
+      console.error('Error in deleteAspect service:', error);
       throw error;
     }
   }
@@ -233,7 +233,7 @@ class DictionaryService {
         }
       };
     } catch (error) {
-      logger.error('Error in getParametersByAspect service:', error);
+      console.error('Error in getParametersByAspect service:', error);
       throw error;
     }
   }
@@ -246,7 +246,7 @@ class DictionaryService {
       }
       return parameter;
     } catch (error) {
-      logger.error('Error in getParameterById service:', error);
+      console.error('Error in getParameterById service:', error);
       throw error;
     }
   }
@@ -278,10 +278,10 @@ class DictionaryService {
       }
 
       const parameter = await this.repository.createParameter(parameterData);
-      logger.info(`Parameter created: ${parameter.id}`);
+      console.info(`Parameter created: ${parameter.id}`);
       return parameter;
     } catch (error) {
-      logger.error('Error in createParameter service:', error);
+      console.error('Error in createParameter service:', error);
       throw error;
     }
   }
@@ -303,10 +303,10 @@ class DictionaryService {
       }
 
       const parameter = await this.repository.updateParameter(id, parameterData);
-      logger.info(`Parameter updated: ${id}`);
+      console.info(`Parameter updated: ${id}`);
       return parameter;
     } catch (error) {
-      logger.error('Error in updateParameter service:', error);
+      console.error('Error in updateParameter service:', error);
       throw error;
     }
   }
@@ -317,10 +317,10 @@ class DictionaryService {
       if (!deleted) {
         throw new Error('Parameter not found or cannot be deleted');
       }
-      logger.info(`Parameter deleted: ${id}`);
+      console.info(`Parameter deleted: ${id}`);
       return { success: true, message: 'Parameter deleted successfully' };
     } catch (error) {
-      logger.error('Error in deleteParameter service:', error);
+      console.error('Error in deleteParameter service:', error);
       throw error;
     }
   }
@@ -341,7 +341,7 @@ class DictionaryService {
         }
       };
     } catch (error) {
-      logger.error('Error in getFactorsByParameter service:', error);
+      console.error('Error in getFactorsByParameter service:', error);
       throw error;
     }
   }
@@ -354,7 +354,7 @@ class DictionaryService {
       }
       return factor;
     } catch (error) {
-      logger.error('Error in getFactorById service:', error);
+      console.error('Error in getFactorById service:', error);
       throw error;
     }
   }
@@ -386,10 +386,10 @@ class DictionaryService {
       }
 
       const factor = await this.repository.createFactor(factorData);
-      logger.info(`Factor created: ${factor.id}`);
+      console.info(`Factor created: ${factor.id}`);
       return factor;
     } catch (error) {
-      logger.error('Error in createFactor service:', error);
+      console.error('Error in createFactor service:', error);
       throw error;
     }
   }
@@ -411,10 +411,10 @@ class DictionaryService {
       }
 
       const factor = await this.repository.updateFactor(id, factorData);
-      logger.info(`Factor updated: ${id}`);
+      console.info(`Factor updated: ${id}`);
       return factor;
     } catch (error) {
-      logger.error('Error in updateFactor service:', error);
+      console.error('Error in updateFactor service:', error);
       throw error;
     }
   }
@@ -425,10 +425,10 @@ class DictionaryService {
       if (!deleted) {
         throw new Error('Factor not found or cannot be deleted');
       }
-      logger.info(`Factor deleted: ${id}`);
+      console.info(`Factor deleted: ${id}`);
       return { success: true, message: 'Factor deleted successfully' };
     } catch (error) {
-      logger.error('Error in deleteFactor service:', error);
+      console.error('Error in deleteFactor service:', error);
       throw error;
     }
   }
@@ -438,7 +438,7 @@ class DictionaryService {
     try {
       return await this.repository.getFullHierarchy();
     } catch (error) {
-      logger.error('Error in getFullHierarchy service:', error);
+      console.error('Error in getFullHierarchy service:', error);
       throw error;
     }
   }
@@ -451,7 +451,7 @@ class DictionaryService {
       }
       return hierarchy;
     } catch (error) {
-      logger.error('Error in getKKAHierarchy service:', error);
+      console.error('Error in getKKAHierarchy service:', error);
       throw error;
     }
   }
@@ -461,7 +461,7 @@ class DictionaryService {
       const hierarchy = await this.repository.getCompleteHierarchy(kkaId);
       return hierarchy;
     } catch (error) {
-      logger.error('Error in getCompleteHierarchy service:', error);
+      console.error('Error in getCompleteHierarchy service:', error);
       throw error;
     }
   }
@@ -471,7 +471,17 @@ class DictionaryService {
       const hierarchy = await this.repository.getCompleteHierarchyAll();
       return hierarchy;
     } catch (error) {
-      logger.error('Error in getCompleteHierarchyAll service:', error);
+      console.error('Error in getCompleteHierarchyAll service:', error);
+      throw error;
+    }
+  }
+
+  async getMinimalHierarchyForNewAssessment() {
+    try {
+      const hierarchy = await this.repository.getMinimalHierarchyForNewAssessment();
+      return hierarchy;
+    } catch (error) {
+      console.error('Error in getMinimalHierarchyForNewAssessment service:', error);
       throw error;
     }
   }
@@ -544,14 +554,14 @@ class DictionaryService {
           
           results.push(kkaResult);
         } catch (error) {
-          logger.error(`Error creating hierarchy for KKA ${kkaData.kode}:`, error);
+          console.error(`Error creating hierarchy for KKA ${kkaData.kode}:`, error);
           results.push({ error: error.message, kkaData });
         }
       }
       
       return results;
     } catch (error) {
-      logger.error('Error in bulkCreateHierarchy service:', error);
+      console.error('Error in bulkCreateHierarchy service:', error);
       throw error;
     }
   }

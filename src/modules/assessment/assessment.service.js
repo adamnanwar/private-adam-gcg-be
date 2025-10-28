@@ -1,6 +1,7 @@
 const assessmentRepository = require('./assessment.repository');
 const dictionaryRepository = require('../dictionary/dictionary.repository');
-const logger = require('../../utils/logger');
+const { db } = require('../../config/database');
+const logger = require('../../utils/logger-simple');
 const { ASSESSMENT_STATUS } = require('./assessment.entity');
 
 class AssessmentService {
@@ -10,12 +11,12 @@ class AssessmentService {
   }
 
   // Assessment Services
-  async getAllAssessments(page = 1, limit = 50, search = '', status = '', assessorId = '') {
+  async getAllAssessments(page = 1, limit = 50, search = '', status = '', assessorId = '', userUnitId = null) {
     try {
       const offset = (page - 1) * limit;
       const [assessments, total] = await Promise.all([
-        this.repository.findAllAssessments(limit, offset, search, status, assessorId),
-        this.repository.countAssessments(search, status, assessorId)
+        this.repository.findAllAssessments(limit, offset, search, status, assessorId, userUnitId),
+        this.repository.countAssessments(search, status, assessorId, userUnitId)
       ]);
 
       return {
@@ -46,11 +47,17 @@ class AssessmentService {
     }
   }
 
+  async getDetailedAssessment(id) {
+    const assessment = await this.getAssessmentById(id);
+    const results = await this.repository.calculateAssessmentResults(id);
+    return { ...assessment, results };
+  }
+
   async createAssessment(assessmentData, userId) {
     try {
       // Validate required fields
-      if (!assessmentData.organization_name || !assessmentData.assessment_date) {
-        throw new Error('Organization name and assessment date are required');
+      if (!assessmentData.title || !assessmentData.assessment_date) {
+        throw new Error('Assessment title and assessment date are required');
       }
 
       // Set default values
@@ -58,8 +65,7 @@ class AssessmentService {
         ...assessmentData,
         assessor_id: assessmentData.assessor_id || userId,
         status: assessmentData.status || ASSESSMENT_STATUS.DRAFT,
-        notes: assessmentData.notes || '',
-        kka_id: null // Remove kka_id requirement for manual entry
+        notes: assessmentData.notes || ''
       };
 
       const createdAssessment = await this.repository.createAssessment(assessment);
@@ -79,15 +85,17 @@ class AssessmentService {
         throw new Error('Assessment not found');
       }
 
+      const isAdmin = await this._hasAdminRole(userId);
+
       // Check if user has permission to update
-      if (existingAssessment.assessor_id !== userId && !this._hasAdminRole(userId)) {
+      if (existingAssessment.assessor_id !== userId && !isAdmin) {
         throw new Error('You can only update your own assessments');
       }
 
       // Prevent status changes to completed/reviewed if not admin
       if (assessmentData.status && 
           [ASSESSMENT_STATUS.COMPLETED, ASSESSMENT_STATUS.REVIEWED].includes(assessmentData.status) &&
-          !this._hasAdminRole(userId)) {
+          !isAdmin) {
         throw new Error('Only admins can set assessment status to completed or reviewed');
       }
 
@@ -108,16 +116,14 @@ class AssessmentService {
         throw new Error('Assessment not found');
       }
 
+      const isAdmin = await this._hasAdminRole(userId);
+
       // Check if user has permission to delete
-      if (existingAssessment.assessor_id !== userId && !this._hasAdminRole(userId)) {
+      if (existingAssessment.assessor_id !== userId && !isAdmin) {
         throw new Error('You can only delete your own assessments');
       }
 
-      const result = await this.repository.deleteAssessment(id);
-      if (!result) {
-        throw new Error('Assessment not found or cannot be deleted');
-      }
-      
+      await this.repository.deleteAssessment(id);
       logger.info(`Assessment deleted: ${id} by user: ${userId}`);
       return { success: true, message: 'Assessment deleted successfully' };
     } catch (error) {
@@ -135,8 +141,10 @@ class AssessmentService {
         throw new Error('Assessment not found');
       }
 
+      const isAdmin = await this._hasAdminRole(userId);
+
       // Check if user has access to this assessment
-      if (assessment.assessor_id !== userId && !this._hasAdminRole(userId)) {
+      if (assessment.assessor_id !== userId && !isAdmin) {
         throw new Error('You do not have access to this assessment');
       }
 
@@ -161,7 +169,9 @@ class AssessmentService {
         throw new Error('Assessment not found');
       }
 
-      if (assessment.assessor_id !== userId && !this._hasAdminRole(userId)) {
+      const isAdmin = await this._hasAdminRole(userId);
+
+      if (assessment.assessor_id !== userId && !isAdmin) {
         throw new Error('You do not have access to this assessment');
       }
 
@@ -209,7 +219,9 @@ class AssessmentService {
 
       // Check if user has access to this response
       const assessment = await this.repository.findAssessmentById(existingResponse.assessment_id);
-      if (assessment.assessor_id !== userId && !this._hasAdminRole(userId)) {
+      const isAdmin = await this._hasAdminRole(userId);
+
+      if (assessment.assessor_id !== userId && !isAdmin) {
         throw new Error('You do not have access to this response');
       }
 
@@ -240,7 +252,9 @@ class AssessmentService {
 
       // Check if user has access to this response
       const assessment = await this.repository.findAssessmentById(existingResponse.assessment_id);
-      if (assessment.assessor_id !== userId && !this._hasAdminRole(userId)) {
+      const isAdmin = await this._hasAdminRole(userId);
+
+      if (assessment.assessor_id !== userId && !isAdmin) {
         throw new Error('You do not have access to this response');
       }
 
@@ -260,44 +274,66 @@ class AssessmentService {
   // Bulk Response Services
   async bulkUpsertResponses(assessmentId, responses, userId) {
     try {
-      // Check if assessment exists and user has access
       const assessment = await this.repository.findAssessmentById(assessmentId);
       if (!assessment) {
         throw new Error('Assessment not found');
       }
 
-      if (assessment.assessor_id !== userId && !this._hasAdminRole(userId)) {
+      const isAdmin = await this._hasAdminRole(userId);
+      const isAssessor = assessment.assessor_id === userId;
+
+      // Check if user is PIC for any of the response factors
+      const responseFactorIds = responses.map(r => r.factor_id);
+      const picAssignments = await this.repository.db('pic_map')
+        .where('assessment_id', assessmentId)
+        .whereIn('target_id', responseFactorIds)
+        .where('target_type', 'factor')
+        .where('pic_user_id', userId);
+
+      const isPIC = picAssignments.length > 0;
+
+      if (!isAdmin && !isAssessor && !isPIC) {
         throw new Error('You do not have access to this assessment');
       }
 
-      // Validate responses
       if (!Array.isArray(responses) || responses.length === 0) {
         throw new Error('Responses must be a non-empty array');
       }
 
-      // Validate each response
       for (const response of responses) {
         if (!response.factor_id || response.score === undefined) {
           throw new Error('Each response must have factor_id and score');
         }
 
-        // Check if factor exists
+        if (!isAdmin) {
+          const missingEvidence = await this.getFactorsMissingEvidence(
+            assessmentId,
+            [response.factor_id],
+            userId
+          );
+
+          if (missingEvidence.length) {
+            throw new Error('Evidence required before submitting scores');
+          }
+        }
+
         const factor = await this.dictionaryRepository.findFactorById(response.factor_id);
         if (!factor) {
           throw new Error(`Factor not found: ${response.factor_id}`);
         }
 
-        // Validate score
         if (response.score < 0 || response.score > factor.max_score) {
           throw new Error(`Score for factor ${response.factor_id} must be between 0 and ${factor.max_score}`);
         }
       }
 
-      // Process responses
       const results = await this.repository.bulkUpsertResponses(assessmentId, responses.map(r => ({
         ...r,
         created_by: userId
       })));
+
+      // Auto-check if all factors have responses and update PIC assignment status
+      await this._checkAndUpdatePICStatus(assessmentId, userId);
 
       logger.info(`Bulk responses processed for assessment: ${assessmentId} by user: ${userId}`);
       return results;
@@ -305,6 +341,79 @@ class AssessmentService {
       logger.error('Error in bulkUpsertResponses service:', error);
       throw error;
     }
+  }
+
+  async _checkAndUpdatePICStatus(assessmentId, userId) {
+    try {
+      // Get all PIC assignments for this user in this assessment
+      const assignments = await this.repository.db('pic_map')
+        .where('assessment_id', assessmentId)
+        .where('pic_user_id', userId)
+        .where('target_type', 'factor');
+
+      if (assignments.length === 0) return;
+
+      // Get all responses for these factors
+      const factorIds = assignments.map(a => a.target_id);
+      const responses = await this.repository.db('response')
+        .where('assessment_id', assessmentId)
+        .whereIn('factor_id', factorIds);
+
+      // If all factors have responses, update status to 'submitted'
+      if (responses.length === factorIds.length) {
+        await this.repository.db('pic_map')
+          .where('assessment_id', assessmentId)
+          .where('pic_user_id', userId)
+          .where('target_type', 'factor')
+          .update({
+            status: 'submitted',
+            updated_at: new Date()
+          });
+
+        logger.info(`Auto-updated PIC assignment status to 'submitted' for user ${userId} in assessment ${assessmentId}`);
+      }
+    } catch (error) {
+      logger.warn('Error checking PIC status:', error.message);
+      // Don't throw, this is a non-critical operation
+    }
+  }
+
+  async getFactorsMissingEvidence(assessmentId, factorIds, userId, unitBidangId) {
+    const assignments = await this.repository.db('pic_map')
+      .select('pic_map.target_id as factor_id', 'pic_map.unit_bidang_id', 'pic_map.pic_user_id')
+      .where('pic_map.assessment_id', assessmentId)
+      .whereIn('pic_map.target_id', factorIds)
+      .where('pic_map.target_type', 'factor');
+
+    const allowedFactorIds = new Set();
+    assignments.forEach(row => {
+      if (row.pic_user_id === userId) {
+        allowedFactorIds.add(row.factor_id);
+      }
+      if (unitBidangId && row.unit_bidang_id === unitBidangId) {
+        allowedFactorIds.add(row.factor_id);
+      }
+    });
+
+    const evidenceCounts = await this.repository.db('evidence')
+      .select('target_id')
+      .count({ total: '*' })
+      .whereIn('target_id', factorIds)
+      .andWhere('target_type', 'factor')
+      .groupBy('target_id');
+
+    const evidenceMap = evidenceCounts.reduce((acc, row) => {
+      acc[row.target_id] = Number(row.total) || 0;
+      return acc;
+    }, {});
+
+    return factorIds
+      .filter((factorId) => !allowedFactorIds.has(factorId) || !evidenceMap[factorId])
+      .map((factorId) => ({
+        factor_id: factorId,
+        hasEvidence: Boolean(evidenceMap[factorId]),
+        allowed: allowedFactorIds.has(factorId)
+      }));
   }
 
   // Assessment Results Services
@@ -316,7 +425,9 @@ class AssessmentService {
         throw new Error('Assessment not found');
       }
 
-      if (assessment.assessor_id !== userId && !this._hasAdminRole(userId)) {
+      const isAdmin = await this._hasAdminRole(userId);
+
+      if (assessment.assessor_id !== userId && !isAdmin) {
         throw new Error('You do not have access to this assessment');
       }
 
@@ -360,8 +471,10 @@ class AssessmentService {
       }
 
       // Only admins can change status to completed or reviewed
+      const isAdmin = await this._hasAdminRole(userId);
+
       if ([ASSESSMENT_STATUS.COMPLETED, ASSESSMENT_STATUS.REVIEWED].includes(status) &&
-          !this._hasAdminRole(userId)) {
+          !isAdmin) {
         throw new Error('Only admins can set assessment status to completed or reviewed');
       }
 
@@ -383,7 +496,8 @@ class AssessmentService {
   async getAssessmentStats(userId) {
     try {
       // If user is not admin, only show their own stats
-      const assessorId = this._hasAdminRole(userId) ? '' : userId;
+      const isAdmin = await this._hasAdminRole(userId);
+      const assessorId = isAdmin ? '' : userId;
       const stats = await this.repository.getAssessmentStats(assessorId);
       return stats;
     } catch (error) {
@@ -393,19 +507,40 @@ class AssessmentService {
   }
 
   // Helper Methods
-  _hasAdminRole(userId) {
-    // This should be implemented based on your user role system
-    // For now, we'll assume all users can manage their own assessments
-    // You can implement role checking here
-    return false;
+  async _hasAdminRole(userId) {
+    if (!userId) {
+      return false;
+    }
+
+    try {
+      const exists = await db.schema.hasTable('users');
+      if (!exists) {
+        return false;
+      }
+
+      const user = await db('users')
+        .where({ id: userId })
+        .first();
+
+      if (!user) {
+        return false;
+      }
+
+      return user.role === 'admin';
+    } catch (error) {
+      logger.warn('Error checking admin role:', error.message);
+      return false;
+    }
   }
 
   _isValidStatusTransition(currentStatus, newStatus) {
     const validTransitions = {
-      [ASSESSMENT_STATUS.DRAFT]: [ASSESSMENT_STATUS.IN_PROGRESS, ASSESSMENT_STATUS.COMPLETED],
-      [ASSESSMENT_STATUS.IN_PROGRESS]: [ASSESSMENT_STATUS.COMPLETED, ASSESSMENT_STATUS.DRAFT],
-      [ASSESSMENT_STATUS.COMPLETED]: [ASSESSMENT_STATUS.REVIEWED, ASSESSMENT_STATUS.IN_PROGRESS],
-      [ASSESSMENT_STATUS.REVIEWED]: [ASSESSMENT_STATUS.COMPLETED]
+      [ASSESSMENT_STATUS.DRAFT]: [ASSESSMENT_STATUS.IN_PROGRESS],
+      [ASSESSMENT_STATUS.IN_PROGRESS]: [ASSESSMENT_STATUS.SUBMITTED, ASSESSMENT_STATUS.DRAFT],
+      [ASSESSMENT_STATUS.SUBMITTED]: [ASSESSMENT_STATUS.UNDER_REVIEW, ASSESSMENT_STATUS.IN_PROGRESS],
+      [ASSESSMENT_STATUS.UNDER_REVIEW]: [ASSESSMENT_STATUS.REVISION_REQUIRED, ASSESSMENT_STATUS.COMPLETED],
+      [ASSESSMENT_STATUS.REVISION_REQUIRED]: [ASSESSMENT_STATUS.IN_PROGRESS],
+      [ASSESSMENT_STATUS.COMPLETED]: [ASSESSMENT_STATUS.UNDER_REVIEW]
     };
 
     return validTransitions[currentStatus]?.includes(newStatus) || false;
@@ -423,7 +558,7 @@ class AssessmentService {
 
       // Create assessment
       const assessment = await this.createAssessment({
-        organization_name: templateData.organization_name,
+        title: templateData.title,
         assessment_date: templateData.assessment_date || new Date(),
         notes: templateData.notes || 'Assessment created from template'
       }, userId);
@@ -466,7 +601,9 @@ class AssessmentService {
       }
 
       // Check if user has access to this assessment
-      if (assessment.assessor_id !== userId && !this._hasAdminRole(userId)) {
+      const isAdmin = await this._hasAdminRole(userId);
+
+      if (assessment.assessor_id !== userId && !isAdmin) {
         throw new Error('You can only view your own assessments');
       }
 

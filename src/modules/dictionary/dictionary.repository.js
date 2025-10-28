@@ -1,5 +1,5 @@
 const { db } = require('../../config/database');
-const { logger } = require('../../utils/logger');
+const logger = require('../../utils/logger-simple');
 
 class DictionaryRepository {
   constructor() {
@@ -24,7 +24,7 @@ class DictionaryRepository {
         .limit(limit)
         .offset(offset);
     } catch (error) {
-      logger.error('Error finding KKA:', error);
+      console.error('Error finding KKA:', error);
       throw error;
     }
   }
@@ -34,7 +34,7 @@ class DictionaryRepository {
       const kka = await this.db('kka').where('id', id).first();
       return kka;
     } catch (error) {
-      logger.error('Error finding KKA by ID:', error);
+      console.error('Error finding KKA by ID:', error);
       throw error;
     }
   }
@@ -51,7 +51,7 @@ class DictionaryRepository {
         .returning('*');
       return kka;
     } catch (error) {
-      logger.error('Error creating KKA:', error);
+      console.error('Error creating KKA:', error);
       throw error;
     }
   }
@@ -67,7 +67,7 @@ class DictionaryRepository {
         .returning('*');
       return kka;
     } catch (error) {
-      logger.error('Error updating KKA:', error);
+      console.error('Error updating KKA:', error);
       throw error;
     }
   }
@@ -83,7 +83,7 @@ class DictionaryRepository {
       const deleted = await this.db('kka').where('id', id).del();
       return deleted > 0;
     } catch (error) {
-      logger.error('Error deleting KKA:', error);
+      console.error('Error deleting KKA:', error);
       throw error;
     }
   }
@@ -103,7 +103,7 @@ class DictionaryRepository {
       const result = await query.first();
       return parseInt(result.count);
     } catch (error) {
-      logger.error('Error counting KKA:', error);
+      console.error('Error counting KKA:', error);
       throw error;
     }
   }
@@ -118,7 +118,7 @@ class DictionaryRepository {
         .limit(limit)
         .offset(offset);
     } catch (error) {
-      logger.error('Error finding aspects by KKA:', error);
+      console.error('Error finding aspects by KKA:', error);
       throw error;
     }
   }
@@ -128,7 +128,7 @@ class DictionaryRepository {
       const aspect = await this.db('aspect').where('id', id).first();
       return aspect;
     } catch (error) {
-      logger.error('Error finding aspect by ID:', error);
+      console.error('Error finding aspect by ID:', error);
       throw error;
     }
   }
@@ -145,7 +145,7 @@ class DictionaryRepository {
         .returning('*');
       return aspect;
     } catch (error) {
-      logger.error('Error creating aspect:', error);
+      console.error('Error creating aspect:', error);
       throw error;
     }
   }
@@ -161,7 +161,7 @@ class DictionaryRepository {
         .returning('*');
       return aspect;
     } catch (error) {
-      logger.error('Error updating aspect:', error);
+      console.error('Error updating aspect:', error);
       throw error;
     }
   }
@@ -177,7 +177,7 @@ class DictionaryRepository {
       const deleted = await this.db('aspect').where('id', id).del();
       return deleted > 0;
     } catch (error) {
-      logger.error('Error deleting aspect:', error);
+      console.error('Error deleting aspect:', error);
       throw error;
     }
   }
@@ -192,7 +192,7 @@ class DictionaryRepository {
         .limit(limit)
         .offset(offset);
     } catch (error) {
-      logger.error('Error finding parameters by aspect:', error);
+      console.error('Error finding parameters by aspect:', error);
       throw error;
     }
   }
@@ -202,7 +202,7 @@ class DictionaryRepository {
       const parameter = await this.db('parameter').where('id', id).first();
       return parameter;
     } catch (error) {
-      logger.error('Error finding parameter by ID:', error);
+      console.error('Error finding parameter by ID:', error);
       throw error;
     }
   }
@@ -219,7 +219,7 @@ class DictionaryRepository {
         .returning('*');
       return parameter;
     } catch (error) {
-      logger.error('Error creating parameter:', error);
+      console.error('Error creating parameter:', error);
       throw error;
     }
   }
@@ -235,7 +235,7 @@ class DictionaryRepository {
         .returning('*');
       return parameter;
     } catch (error) {
-      logger.error('Error updating parameter:', error);
+      console.error('Error updating parameter:', error);
       throw error;
     }
   }
@@ -251,7 +251,7 @@ class DictionaryRepository {
       const deleted = await this.db('parameter').where('id', id).del();
       return deleted > 0;
     } catch (error) {
-      logger.error('Error deleting parameter:', error);
+      console.error('Error deleting parameter:', error);
       throw error;
     }
   }
@@ -261,12 +261,11 @@ class DictionaryRepository {
     try {
       return await this.db('factor')
         .where('parameter_id', parameterId)
-        .orderBy('sort', 'asc')
         .orderBy('created_at', 'desc')
         .limit(limit)
         .offset(offset);
     } catch (error) {
-      logger.error('Error finding factors by parameter:', error);
+      console.error('Error finding factors by parameter:', error);
       throw error;
     }
   }
@@ -276,7 +275,7 @@ class DictionaryRepository {
       const factor = await this.db('factor').where('id', id).first();
       return factor;
     } catch (error) {
-      logger.error('Error finding factor by ID:', error);
+      console.error('Error finding factor by ID:', error);
       throw error;
     }
   }
@@ -293,7 +292,7 @@ class DictionaryRepository {
         .returning('*');
       return factor;
     } catch (error) {
-      logger.error('Error creating factor:', error);
+      console.error('Error creating factor:', error);
       throw error;
     }
   }
@@ -309,7 +308,7 @@ class DictionaryRepository {
         .returning('*');
       return factor;
     } catch (error) {
-      logger.error('Error updating factor:', error);
+      console.error('Error updating factor:', error);
       throw error;
     }
   }
@@ -325,7 +324,7 @@ class DictionaryRepository {
       const deleted = await this.db('factor').where('id', id).del();
       return deleted > 0;
     } catch (error) {
-      logger.error('Error deleting factor:', error);
+      console.error('Error deleting factor:', error);
       throw error;
     }
   }
@@ -367,7 +366,7 @@ class DictionaryRepository {
 
       return hierarchy;
     } catch (error) {
-      logger.error('Error getting full hierarchy:', error);
+      console.error('Error getting full hierarchy:', error);
       throw error;
     }
   }
@@ -402,7 +401,7 @@ class DictionaryRepository {
         }))
       };
     } catch (error) {
-      logger.error('Error getting KKA hierarchy:', error);
+      console.error('Error getting KKA hierarchy:', error);
       throw error;
     }
   }
@@ -456,7 +455,7 @@ class DictionaryRepository {
         aspects: aspectsWithParams
       };
     } catch (error) {
-      logger.error('Error getting complete hierarchy:', error);
+      console.error('Error getting complete hierarchy:', error);
       throw error;
     }
   }
@@ -465,6 +464,8 @@ class DictionaryRepository {
     try {
       // Get all KKAs
       const kkas = await this.db('kka')
+        .where('is_active', true)
+        .orderBy('sort', 'asc')
         .orderBy('created_at', 'asc');
 
       // Get complete hierarchy for each KKA
@@ -473,7 +474,7 @@ class DictionaryRepository {
           try {
             return await this.getCompleteHierarchy(kka.id);
           } catch (error) {
-            logger.warn(`Could not get hierarchy for KKA ${kka.id}:`, error);
+            console.warn(`Could not get hierarchy for KKA ${kka.id}:`, error);
             return kka;
           }
         })
@@ -481,7 +482,84 @@ class DictionaryRepository {
 
       return kkasWithHierarchy;
     } catch (error) {
-      logger.error('Error getting complete hierarchy for all:', error);
+      console.error('Error getting complete hierarchy for all:', error);
+      throw error;
+    }
+  }
+
+  // Optimized method for new assessment - only get minimal data
+  async getMinimalHierarchyForNewAssessment() {
+    try {
+      // Get only active KKAs with basic info
+      const kkas = await this.db('kka')
+        .select('id', 'kode', 'nama', 'deskripsi', 'weight', 'sort')
+        .where('is_active', true)
+        .orderBy('sort', 'asc')
+        .limit(5); // Limit to 5 KKAs for new assessment
+
+      // Get aspects for these KKAs in one query
+      const kkaIds = kkas.map(k => k.id);
+      const aspects = await this.db('aspect')
+        .select('id', 'kka_id', 'kode', 'nama', 'weight', 'sort')
+        .whereIn('kka_id', kkaIds)
+        .where('is_active', true)
+        .orderBy('sort', 'asc');
+
+      // Get parameters for these aspects in one query
+      const aspectIds = aspects.map(a => a.id);
+      const parameters = await this.db('parameter')
+        .select('id', 'aspect_id', 'kode', 'nama', 'weight', 'sort')
+        .whereIn('aspect_id', aspectIds)
+        .where('is_active', true)
+        .orderBy('sort', 'asc');
+
+      // Get factors for these parameters in one query
+      const parameterIds = parameters.map(p => p.id);
+      const factors = await this.db('factor')
+        .select('id', 'parameter_id', 'kode', 'nama', 'deskripsi', 'max_score', 'sort')
+        .whereIn('parameter_id', parameterIds)
+        .where('is_active', true)
+        .orderBy('sort', 'asc');
+
+      // Build hierarchy structure
+      const kkasWithHierarchy = kkas.map(kka => {
+        const kkaAspects = aspects
+          .filter(aspect => aspect.kka_id === kka.id)
+          .map(aspect => {
+            const aspectParameters = parameters
+              .filter(param => param.aspect_id === aspect.id)
+              .map(parameter => {
+                const parameterFactors = factors
+                  .filter(factor => factor.parameter_id === parameter.id)
+                  .map(factor => ({
+                    ...factor,
+                    score: 0,
+                    comment: '',
+                    pic_user_id: null,
+                    pic_name: ''
+                  }));
+
+                return {
+                  ...parameter,
+                  factors: parameterFactors
+                };
+              });
+
+            return {
+              ...aspect,
+              parameters: aspectParameters
+            };
+          });
+
+        return {
+          ...kka,
+          aspects: kkaAspects
+        };
+      });
+
+      return kkasWithHierarchy;
+    } catch (error) {
+      console.error('Error getting minimal hierarchy for new assessment:', error);
       throw error;
     }
   }

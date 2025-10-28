@@ -1,6 +1,6 @@
 const dictionaryService = require('./dictionary.service');
 const { successResponse, errorResponse, paginatedResponse, validationErrorResponse } = require('../../utils/response');
-const { logger } = require('../../utils/logger');
+const logger = require('../../utils/logger');
 const Joi = require('joi');
 
 // Validation schemas
@@ -106,7 +106,7 @@ class DictionaryController {
         'KKA retrieved successfully'
       ));
     } catch (error) {
-      logger.error('Error in getAllKKA controller:', error);
+      console.error('Error in getAllKKA controller:', error);
       res.status(500).json(errorResponse('Failed to retrieve KKA', 'INTERNAL_ERROR'));
     }
   }
@@ -118,7 +118,7 @@ class DictionaryController {
       
       res.json(successResponse(kka, 'KKA retrieved successfully'));
     } catch (error) {
-      logger.error('Error in getKKAById controller:', error);
+      console.error('Error in getKKAById controller:', error);
       if (error.message === 'KKA not found') {
         res.status(404).json(errorResponse('KKA not found', 'NOT_FOUND'));
       } else {
@@ -137,7 +137,7 @@ class DictionaryController {
       const kka = await dictionaryService.createKKA(value);
       res.status(201).json(successResponse(kka, 'KKA created successfully'));
     } catch (error) {
-      logger.error('Error in createKKA controller:', error);
+      console.error('Error in createKKA controller:', error);
       if (error.message.includes('already exists')) {
         res.status(409).json(errorResponse(error.message, 'CONFLICT'));
       } else if (error.message.includes('required')) {
@@ -159,7 +159,7 @@ class DictionaryController {
       const kka = await dictionaryService.updateKKA(id, value);
       res.json(successResponse(kka, 'KKA updated successfully'));
     } catch (error) {
-      logger.error('Error in updateKKA controller:', error);
+      console.error('Error in updateKKA controller:', error);
       if (error.message === 'KKA not found') {
         res.status(404).json(errorResponse('KKA not found', 'NOT_FOUND'));
       } else if (error.message.includes('already exists')) {
@@ -177,7 +177,7 @@ class DictionaryController {
       
       res.json(successResponse(result, 'KKA deleted successfully'));
     } catch (error) {
-      logger.error('Error in deleteKKA controller:', error);
+      console.error('Error in deleteKKA controller:', error);
       if (error.message === 'KKA not found or cannot be deleted') {
         res.status(404).json(errorResponse('KKA not found or cannot be deleted', 'NOT_FOUND'));
       } else {
@@ -201,7 +201,7 @@ class DictionaryController {
         'Aspects retrieved successfully'
       ));
     } catch (error) {
-      logger.error('Error in getAspectsByKKA controller:', error);
+      console.error('Error in getAspectsByKKA controller:', error);
       res.status(500).json(errorResponse('Failed to retrieve aspects', 'INTERNAL_ERROR'));
     }
   }
@@ -213,7 +213,7 @@ class DictionaryController {
       
       res.json(successResponse(aspect, 'Aspect retrieved successfully'));
     } catch (error) {
-      logger.error('Error in getAspectById controller:', error);
+      console.error('Error in getAspectById controller:', error);
       if (error.message === 'Aspect not found') {
         res.status(404).json(errorResponse('Aspect not found', 'NOT_FOUND'));
       } else {
@@ -232,7 +232,7 @@ class DictionaryController {
       const aspect = await dictionaryService.createAspect(value);
       res.status(201).json(successResponse(aspect, 'Aspect created successfully'));
     } catch (error) {
-      logger.error('Error in createAspect controller:', error);
+      console.error('Error in createAspect controller:', error);
       if (error.message.includes('already exists')) {
         res.status(409).json(errorResponse(error.message, 'CONFLICT'));
       } else if (error.message.includes('required') || error.message.includes('not found')) {
@@ -254,7 +254,7 @@ class DictionaryController {
       const aspect = await dictionaryService.updateAspect(id, value);
       res.json(successResponse(aspect, 'Aspect updated successfully'));
     } catch (error) {
-      logger.error('Error in updateAspect controller:', error);
+      console.error('Error in updateAspect controller:', error);
       if (error.message === 'Aspect not found') {
         res.status(404).json(errorResponse('Aspect not found', 'NOT_FOUND'));
       } else if (error.message.includes('already exists')) {
@@ -272,7 +272,7 @@ class DictionaryController {
       
       res.json(successResponse(result, 'Aspect deleted successfully'));
     } catch (error) {
-      logger.error('Error in deleteAspect controller:', error);
+      console.error('Error in deleteAspect controller:', error);
       if (error.message === 'Aspect not found or cannot be deleted') {
         res.status(404).json(errorResponse('Aspect not found or cannot be deleted', 'NOT_FOUND'));
       } else {
@@ -296,7 +296,7 @@ class DictionaryController {
         'Parameters retrieved successfully'
       ));
     } catch (error) {
-      logger.error('Error in getParametersByAspect controller:', error);
+      console.error('Error in getParametersByAspect controller:', error);
       res.status(500).json(errorResponse('Failed to retrieve parameters', 'INTERNAL_ERROR'));
     }
   }
@@ -308,7 +308,7 @@ class DictionaryController {
       
       res.json(successResponse(parameter, 'Parameter retrieved successfully'));
     } catch (error) {
-      logger.error('Error in getParameterById controller:', error);
+      console.error('Error in getParameterById controller:', error);
       if (error.message === 'Parameter not found') {
         res.status(404).json(errorResponse('Parameter not found', 'NOT_FOUND'));
       } else {
@@ -327,7 +327,7 @@ class DictionaryController {
       const parameter = await dictionaryService.createParameter(value);
       res.status(201).json(successResponse(parameter, 'Parameter created successfully'));
     } catch (error) {
-      logger.error('Error in createParameter controller:', error);
+      console.error('Error in createParameter controller:', error);
       if (error.message.includes('already exists')) {
         res.status(409).json(errorResponse(error.message, 'CONFLICT'));
       } else if (error.message.includes('required') || error.message.includes('not found')) {
@@ -349,7 +349,7 @@ class DictionaryController {
       const parameter = await dictionaryService.updateParameter(id, value);
       res.json(successResponse(parameter, 'Parameter updated successfully'));
     } catch (error) {
-      logger.error('Error in updateParameter controller:', error);
+      console.error('Error in updateParameter controller:', error);
       if (error.message === 'Parameter not found') {
         res.status(404).json(errorResponse('Parameter not found', 'NOT_FOUND'));
       } else if (error.message.includes('already exists')) {
@@ -367,7 +367,7 @@ class DictionaryController {
       
       res.json(successResponse(result, 'Parameter deleted successfully'));
     } catch (error) {
-      logger.error('Error in deleteParameter controller:', error);
+      console.error('Error in deleteParameter controller:', error);
       if (error.message === 'Parameter not found or cannot be deleted') {
         res.status(404).json(errorResponse('Parameter not found or cannot be deleted', 'NOT_FOUND'));
       } else {
@@ -379,9 +379,12 @@ class DictionaryController {
   // Factor Controllers
   async getFactorsByParameter(req, res) {
     try {
+      console.log('getFactorsByParameter called with parameterId:', req.params.parameterId);
       const { parameterId } = req.params;
       const { page = 1, limit = 50 } = req.query;
+      console.log('Calling service with:', { parameterId, page, limit });
       const result = await dictionaryService.getFactorsByParameter(parameterId, parseInt(page), parseInt(limit));
+      console.log('Service result:', result);
       
       res.json(paginatedResponse(
         result.data,
@@ -391,7 +394,7 @@ class DictionaryController {
         'Factors retrieved successfully'
       ));
     } catch (error) {
-      logger.error('Error in getFactorsByParameter controller:', error);
+      console.error('Error in getFactorsByParameter controller:', error);
       res.status(500).json(errorResponse('Failed to retrieve factors', 'INTERNAL_ERROR'));
     }
   }
@@ -403,7 +406,7 @@ class DictionaryController {
       
       res.json(successResponse(factor, 'Factor retrieved successfully'));
     } catch (error) {
-      logger.error('Error in getFactorById controller:', error);
+      console.error('Error in getFactorById controller:', error);
       if (error.message === 'Factor not found') {
         res.status(404).json(errorResponse('Factor not found', 'NOT_FOUND'));
       } else {
@@ -422,7 +425,7 @@ class DictionaryController {
       const factor = await dictionaryService.createFactor(value);
       res.status(201).json(successResponse(factor, 'Factor created successfully'));
     } catch (error) {
-      logger.error('Error in createFactor controller:', error);
+      console.error('Error in createFactor controller:', error);
       if (error.message.includes('already exists')) {
         res.status(409).json(errorResponse(error.message, 'CONFLICT'));
       } else if (error.message.includes('required') || error.message.includes('not found')) {
@@ -444,7 +447,7 @@ class DictionaryController {
       const factor = await dictionaryService.updateFactor(id, value);
       res.json(successResponse(factor, 'Factor updated successfully'));
     } catch (error) {
-      logger.error('Error in updateFactor controller:', error);
+      console.error('Error in updateFactor controller:', error);
       if (error.message === 'Factor not found') {
         res.status(404).json(errorResponse('Factor not found', 'NOT_FOUND'));
       } else if (error.message.includes('already exists')) {
@@ -462,7 +465,7 @@ class DictionaryController {
       
       res.json(successResponse(result, 'Factor deleted successfully'));
     } catch (error) {
-      logger.error('Error in deleteFactor controller:', error);
+      console.error('Error in deleteFactor controller:', error);
       if (error.message === 'Factor not found or cannot be deleted') {
         res.status(404).json(errorResponse('Factor not found or cannot be deleted', 'NOT_FOUND'));
       } else {
@@ -477,7 +480,7 @@ class DictionaryController {
       const hierarchy = await dictionaryService.getFullHierarchy();
       res.json(successResponse(hierarchy, 'Full hierarchy retrieved successfully'));
     } catch (error) {
-      logger.error('Error in getFullHierarchy controller:', error);
+      console.error('Error in getFullHierarchy controller:', error);
       res.status(500).json(errorResponse('Failed to retrieve hierarchy', 'INTERNAL_ERROR'));
     }
   }
@@ -489,7 +492,7 @@ class DictionaryController {
       
       res.json(successResponse(hierarchy, 'KKA hierarchy retrieved successfully'));
     } catch (error) {
-      logger.error('Error in getKKAHierarchy controller:', error);
+      console.error('Error in getKKAHierarchy controller:', error);
       if (error.message === 'KKA not found') {
         res.status(404).json(errorResponse('KKA not found', 'NOT_FOUND'));
       } else {
@@ -505,7 +508,7 @@ class DictionaryController {
       
       return successResponse(res, hierarchy, 'Hierarchy retrieved successfully');
     } catch (error) {
-      logger.error('Error in getCompleteHierarchy controller:', error);
+      console.error('Error in getCompleteHierarchy controller:', error);
       return errorResponse(res, error.message, 500);
     }
   }
@@ -516,7 +519,18 @@ class DictionaryController {
       
       return successResponse(res, hierarchy, 'Complete hierarchy retrieved successfully');
     } catch (error) {
-      logger.error('Error in getCompleteHierarchyAll controller:', error);
+      console.error('Error in getCompleteHierarchyAll controller:', error);
+      return errorResponse(res, error.message, 500);
+    }
+  }
+
+  async getMinimalHierarchyForNewAssessment(req, res) {
+    try {
+      const hierarchy = await dictionaryService.getMinimalHierarchyForNewAssessment();
+      
+      return successResponse(res, hierarchy, 'Minimal hierarchy for new assessment retrieved successfully');
+    } catch (error) {
+      console.error('Error in getMinimalHierarchyForNewAssessment controller:', error);
       return errorResponse(res, error.message, 500);
     }
   }
@@ -532,7 +546,7 @@ class DictionaryController {
       const results = await dictionaryService.bulkCreateHierarchy(value);
       res.status(201).json(successResponse(results, 'Hierarchy created successfully'));
     } catch (error) {
-      logger.error('Error in bulkCreateHierarchy controller:', error);
+      console.error('Error in bulkCreateHierarchy controller:', error);
       res.status(500).json(errorResponse('Failed to create hierarchy', 'INTERNAL_ERROR'));
     }
   }

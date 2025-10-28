@@ -280,7 +280,7 @@ function getFUKColorClass(fuk) {
 function validateAssessment(assessment) {
   const errors = [];
   
-  if (!assessment.organization_name) {
+  if (!assessment.title) {
     errors.push('Organization name is required');
   }
   

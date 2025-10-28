@@ -1,0 +1,128 @@
+const evidenceService = require('./evidence.service');
+const { successResponse, errorResponse, validationErrorResponse } = require('../../utils/response');
+const logger = require('../../utils/logger-simple');
+const Joi = require('joi');
+const path = require('path');
+const fs = require('fs');
+
+// Validation schemas
+const uploadEvidenceSchema = Joi.object({
+  note: Joi.string().optional().max(500)
+});
+
+class EvidenceController {
+  /**
+   * Upload evidence for an assignment
+   */
+  async uploadEvidence(req, res) {
+    try {
+      const { assignmentId } = req.params;
+      const { error, value } = uploadEvidenceSchema.validate(req.body);
+      
+      if (error) {
+        return res.status(400).json(validationErrorResponse('Validation error', error.details));
+      }
+
+      if (!req.file) {
+        return res.status(400).json(errorResponse('No file uploaded', 'VALIDATION_ERROR'));
+      }
+
+      const userId = req.user.id;
+      const result = await evidenceService.uploadEvidence(
+        assignmentId, 
+        req.file, 
+        value.note, 
+        userId
+      );
+      
+      res.json(successResponse(result, 'Evidence uploaded successfully'));
+    } catch (error) {
+      logger.error('Error in uploadEvidence controller:', error);
+      if (error.message === 'Assignment not found or unauthorized') {
+        res.status(404).json(errorResponse('Assignment not found or unauthorized', 'NOT_FOUND'));
+      } else if (error.message.includes('Only images, PDFs, and Office documents are allowed')) {
+        res.status(400).json(errorResponse('Invalid file type. Only images, PDFs, and Office documents are allowed', 'VALIDATION_ERROR'));
+      } else if (error.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json(errorResponse('File too large. Maximum size is 10MB', 'VALIDATION_ERROR'));
+      } else {
+        res.status(500).json(errorResponse('Failed to upload evidence', 'INTERNAL_ERROR'));
+      }
+    }
+  }
+
+  /**
+   * Get evidence for an assignment
+   */
+  async getEvidenceByAssignment(req, res) {
+    try {
+      const { assignmentId } = req.params;
+      const userId = req.user.id;
+      const evidence = await evidenceService.getEvidenceByAssignment(assignmentId, userId);
+      
+      res.json(successResponse(evidence, 'Evidence retrieved successfully'));
+    } catch (error) {
+      logger.error('Error in getEvidenceByAssignment controller:', error);
+      if (error.message === 'Assignment not found or unauthorized') {
+        res.status(404).json(errorResponse('Assignment not found or unauthorized', 'NOT_FOUND'));
+      } else {
+        res.status(500).json(errorResponse('Failed to retrieve evidence', 'INTERNAL_ERROR'));
+      }
+    }
+  }
+
+  /**
+   * Delete evidence
+   */
+  async deleteEvidence(req, res) {
+    try {
+      const { evidenceId } = req.params;
+      const userId = req.user.id;
+      const result = await evidenceService.deleteEvidence(evidenceId, userId);
+      
+      res.json(successResponse(result, 'Evidence deleted successfully'));
+    } catch (error) {
+      logger.error('Error in deleteEvidence controller:', error);
+      if (error.message === 'Evidence not found or unauthorized') {
+        res.status(404).json(errorResponse('Evidence not found or unauthorized', 'NOT_FOUND'));
+      } else {
+        res.status(500).json(errorResponse('Failed to delete evidence', 'INTERNAL_ERROR'));
+      }
+    }
+  }
+
+  /**
+   * Get evidence by factor (for assessors)
+   */
+  async getEvidenceByFactor(req, res) {
+    try {
+      const { factorId } = req.params;
+      const evidence = await evidenceService.getEvidenceByFactor(factorId);
+      
+      res.json(successResponse(evidence, 'Evidence retrieved successfully'));
+    } catch (error) {
+      logger.error('Error in getEvidenceByFactor controller:', error);
+      res.status(500).json(errorResponse('Failed to retrieve evidence', 'INTERNAL_ERROR'));
+    }
+  }
+
+  /**
+   * Serve evidence files
+   */
+  async serveEvidence(req, res) {
+    try {
+      const { filename } = req.params;
+      const filePath = path.join(__dirname, '../../../uploads/evidence', filename);
+      
+      if (!fs.existsSync(filePath)) {
+        return res.status(404).json(errorResponse('File not found', 'NOT_FOUND'));
+      }
+
+      res.sendFile(filePath);
+    } catch (error) {
+      logger.error('Error in serveEvidence controller:', error);
+      res.status(500).json(errorResponse('Failed to serve file', 'INTERNAL_ERROR'));
+    }
+  }
+}
+
+module.exports = new EvidenceController();

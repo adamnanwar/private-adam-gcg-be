@@ -7,14 +7,22 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- =====================================================
--- 1. USERS TABLE
+-- 1. UNIT BIDANG TABLE (Test Unit)
 -- =====================================================
-INSERT INTO users (id, name, email, password_hash, role, auth_provider, created_at, updated_at) VALUES
-('550e8400-e29b-41d4-a716-446655440001', 'Admin GCG', 'admin@gcg.com', '$2b$10$rQZ8K9X2mN3vB4cR5tY6uI7oP8qS9wE0fG1hJ2kL3mN4oP5qR6sT7uV8wX9yZ', 'admin', 'local', NOW(), NOW()),
-('550e8400-e29b-41d4-a716-446655440002', 'Assessor 1', 'assessor1@gcg.com', '$2b$10$rQZ8K9X2mN3vB4cR5tY6uI7oP8qS9wE0fG1hJ2kL3mN4oP5qR6sT7uV8wX9yZ', 'assessor', 'local', NOW(), NOW()),
-('550e8400-e29b-41d4-a716-446655440003', 'Assessor 2', 'assessor2@gcg.com', '$2b$10$rQZ8K9X2mN3vB4cR5tY6uI7oP8qS9wE0fG1hJ2kL3mN4oP5qR6sT7uV8wX9yZ', 'assessor', 'local', NOW(), NOW()),
-('550e8400-e29b-41d4-a716-446655440004', 'PIC 1', 'pic1@gcg.com', '$2b$10$rQZ8K9X2mN3vB4cR5tY6uI7oP8qS9wE0fG1hJ2kL3mN4oP5qR6sT7uV8wX9yZ', 'pic', 'local', NOW(), NOW()),
-('550e8400-e29b-41d4-a716-446655440005', 'Viewer 1', 'viewer1@gcg.com', '$2b$10$rQZ8K9X2mN3vB4cR5tY6uI7oP8qS9wE0fG1hJ2kL3mN4oP5qR6sT7uV8wX9yZ', 'viewer', 'local', NOW(), NOW())
+INSERT INTO unit_bidang (id, kode, nama, deskripsi, is_active, created_at, updated_at) VALUES
+('550e8400-e29b-41d4-a716-446655440999', 'TEST', 'Unit Bidang Test', 'Unit bidang untuk testing', true, NOW(), NOW())
+ON CONFLICT (kode) DO NOTHING;
+
+-- =====================================================
+-- 2. USERS TABLE
+-- =====================================================
+INSERT INTO users (id, name, email, password_hash, role, auth_provider, unit_bidang_id, is_active, created_at, updated_at) VALUES
+('550e8400-e29b-41d4-a716-446655440001', 'Admin GCG', 'admin@gcg.com', '$2b$10$rQZ8K9X2mN3vB4cR5tY6uI7oP8qS9wE0fG1hJ2kL3mN4oP5qR6sT7uV8wX9yZ', 'admin', 'local', null, true, NOW(), NOW()),
+('550e8400-e29b-41d4-a716-446655440002', 'Assessor 1', 'assessor1@gcg.com', '$2b$10$rQZ8K9X2mN3vB4cR5tY6uI7oP8qS9wE0fG1hJ2kL3mN4oP5qR6sT7uV8wX9yZ', 'assessor', 'local', null, true, NOW(), NOW()),
+('550e8400-e29b-41d4-a716-446655440003', 'Assessor 2', 'assessor2@gcg.com', '$2b$10$rQZ8K9X2mN3vB4cR5tY6uI7oP8qS9wE0fG1hJ2kL3mN4oP5qR6sT7uV8wX9yZ', 'assessor', 'local', null, true, NOW(), NOW()),
+('550e8400-e29b-41d4-a716-446655440004', 'PIC 1', 'pic1@gcg.com', '$2b$10$rQZ8K9X2mN3vB4cR5tY6uI7oP8qS9wE0fG1hJ2kL3mN4oP5qR6sT7uV8wX9yZ', 'pic', 'local', null, true, NOW(), NOW()),
+('550e8400-e29b-41d4-a716-446655440005', 'Viewer 1', 'viewer1@gcg.com', '$2b$10$rQZ8K9X2mN3vB4cR5tY6uI7oP8qS9wE0fG1hJ2kL3mN4oP5qR6sT7uV8wX9yZ', 'viewer', 'local', null, true, NOW(), NOW()),
+('550e8400-e29b-41d4-a716-446655440998', 'Fury Surggt', 'furysurggt2@gmail.com', '$2b$10$rQZ8K9X2mN3vB4cR5tY6uI7oP8qS9wE0fG1hJ2kL3mN4oP5qR6sT7uV8wX9yZ', 'pic', 'local', '550e8400-e29b-41d4-a716-446655440999', true, NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
 -- =====================================================

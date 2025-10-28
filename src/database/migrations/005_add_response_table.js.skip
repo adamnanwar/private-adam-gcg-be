@@ -1,0 +1,20 @@
+exports.up = function(knex) {
+  return knex.schema.createTable('response', function(table) {
+    table.uuid('id').primary().defaultTo(knex.raw('gen_random_uuid()'));
+    table.uuid('assessment_id').references('id').inTable('assessment').onDelete('CASCADE');
+    table.uuid('factor_id').references('id').inTable('factor').onDelete('CASCADE');
+    table.decimal('score', 10, 3).notNullable().checkBetween([0, 1]);
+    table.text('comment');
+    table.uuid('created_by').references('id').inTable('users');
+    table.timestamps(true, true);
+    
+    table.index(['assessment_id']);
+    table.index(['factor_id']);
+    table.index(['created_by']);
+    table.unique(['assessment_id', 'factor_id']);
+  });
+};
+
+exports.down = function(knex) {
+  return knex.schema.dropTable('response');
+};

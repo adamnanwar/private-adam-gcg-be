@@ -21,7 +21,8 @@ describe('AOIService', () => {
       getAOIWithTargetDetails: jest.fn()
     };
 
-    aoiService = new AOIService({});
+    AOIRepository.mockClear();
+    aoiService = AOIService;
     // Mock the repository methods directly
     aoiService.repository = mockRepository;
   });
@@ -34,7 +35,7 @@ describe('AOIService', () => {
     it('should create AOI successfully', async () => {
       const aoiData = {
         assessment_id: 'test-assessment',
-        target_type: 'assessment_factor',
+        target_type: 'factor',
         target_id: 'test-factor',
         recommendation: 'Improve performance',
         due_date: '2024-12-31',
@@ -71,7 +72,7 @@ describe('AOIService', () => {
     it('should throw error if target validation fails', async () => {
       const aoiData = {
         assessment_id: 'test-assessment',
-        target_type: 'assessment_factor',
+        target_type: 'factor',
         target_id: 'invalid-factor',
         recommendation: 'Improve performance',
         created_by: '11111111-1111-1111-1111-111111111111'
@@ -94,7 +95,7 @@ describe('AOIService', () => {
       };
 
       await expect(aoiService.createAOI(aoiData)).rejects.toThrow(
-        'Failed to create AOI: Invalid target type. Must be one of: assessment_aspect, assessment_parameter, assessment_factor'
+        'Failed to create AOI: Invalid target type. Must be one of: parameter, factor'
       );
     });
   });
@@ -109,7 +110,7 @@ describe('AOIService', () => {
       const existingAOI = {
         id: aoiId,
         assessment_id: 'test-assessment',
-        target_type: 'assessment_factor',
+        target_type: 'factor',
         target_id: 'test-factor'
       };
       const expectedAOI = {
@@ -142,13 +143,13 @@ describe('AOIService', () => {
     it('should validate target if target_type or target_id is updated', async () => {
       const aoiId = 'test-aoi';
       const updateData = {
-        target_type: 'assessment_parameter',
+        target_type: 'parameter',
         target_id: 'new-parameter'
       };
       const existingAOI = {
         id: aoiId,
         assessment_id: 'test-assessment',
-        target_type: 'assessment_factor',
+        target_type: 'factor',
         target_id: 'test-factor'
       };
 
@@ -200,7 +201,7 @@ describe('AOIService', () => {
       const expectedAOI = {
         id: aoiId,
         assessment_id: 'test-assessment',
-        target_type: 'assessment_factor',
+        target_type: 'factor',
         target_id: 'test-factor',
         recommendation: 'Improve performance'
       };
@@ -306,7 +307,7 @@ describe('AOIService', () => {
       const aoiId = 'test-aoi';
       const expectedAOI = {
         id: aoiId,
-        target_type: 'assessment_factor',
+        target_type: 'factor',
         target_id: 'test-factor',
         targetDetails: {
           kode: 'FACTOR-001',

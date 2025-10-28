@@ -7,7 +7,7 @@ class AOI {
   constructor(data) {
     this.id = data.id;
     this.assessment_id = data.assessment_id;
-    this.target_type = data.target_type; // 'assessment_aspect', 'assessment_parameter', 'assessment_factor'
+    this.target_type = data.target_type; // 'parameter', 'factor'
     this.target_id = data.target_id;
     this.recommendation = data.recommendation;
     this.due_date = data.due_date;
@@ -19,11 +19,17 @@ class AOI {
     // Additional fields from joins
     this.created_by_name = data.created_by_name;
     this.assessment_name = data.assessment_name;
+    this.pic_unit_name = data.pic_unit_name;
+    this.pic_unit_code = data.pic_unit_code;
     this.pic_name = data.pic_name;
     this.pic_email = data.pic_email;
+    
+    // Evidence field for multiple document uploads
+    this.evidence = data.evidence || [];
   }
 
   static fromDatabase(data) {
+    if (!data) return null;
     return new AOI(data);
   }
 
@@ -41,8 +47,11 @@ class AOI {
       updated_at: this.updated_at,
       created_by_name: this.created_by_name,
       assessment_name: this.assessment_name,
+      pic_unit_name: this.pic_unit_name,
+      pic_unit_code: this.pic_unit_code,
       pic_name: this.pic_name,
-      pic_email: this.pic_email
+      pic_email: this.pic_email,
+      evidence: this.evidence
     };
   }
 
@@ -55,7 +64,7 @@ class AOI {
 
     if (!this.target_type) {
       errors.push('Target type is required');
-    } else if (!['assessment_aspect', 'assessment_parameter', 'assessment_factor'].includes(this.target_type)) {
+    } else if (!['parameter', 'factor'].includes(this.target_type)) {
       errors.push('Invalid target type');
     }
 
@@ -107,14 +116,11 @@ const AOI_STATUS = {
 
 // Target Type Enum
 const TARGET_TYPE = {
-  ASSESSMENT_ASPECT: 'assessment_aspect',
-  ASSESSMENT_PARAMETER: 'assessment_parameter',
-  ASSESSMENT_FACTOR: 'assessment_factor'
+  PARAMETER: 'parameter',
+  FACTOR: 'factor'
 };
 
-module.exports = {
-  AOI,
-  AOI_STATUS,
-  TARGET_TYPE
-};
+module.exports = AOI;
+module.exports.AOI_STATUS = AOI_STATUS;
+module.exports.TARGET_TYPE = TARGET_TYPE;
 

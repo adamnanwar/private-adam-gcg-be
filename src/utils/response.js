@@ -64,6 +64,15 @@ const conflictResponse = (message = 'Resource conflict') => ({
   code: 'CONFLICT'
 });
 
+// Helper functions for Express response
+const success = (res, data, message = 'Success', statusCode = 200) => {
+  return res.status(statusCode).json(successResponse(data, message));
+};
+
+const error = (res, message, statusCode = 500, code = 'ERROR', details = null) => {
+  return res.status(statusCode).json(errorResponse(message, code, details));
+};
+
 module.exports = {
   successResponse,
   errorResponse,
@@ -73,6 +82,8 @@ module.exports = {
   unauthorizedResponse,
   forbiddenResponse,
   internalErrorResponse,
-  conflictResponse
+  conflictResponse,
+  success,
+  error
 };
 
