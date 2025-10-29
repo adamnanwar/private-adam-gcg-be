@@ -15,7 +15,7 @@ class SK16Service {
       const assessments = await this.db('assessment')
         .select(
           'assessment.id',
-          'assessment.organization_name',
+          'assessment.title as organization_name', // Map title to organization_name for compatibility
           'assessment.assessment_date',
           'assessment.status',
           'assessment.notes',
@@ -89,10 +89,10 @@ class SK16Service {
 
       await trx('assessment').insert({
         id: assessmentId,
-        organization_name: data.organization_name,
+        title: data.organization_name, // Use 'title' column instead of 'organization_name'
         assessment_date: data.assessment_date,
         assessor_id: userId,
-        status: 'completed', // SK16 is always completed
+        status: 'selesai', // Use 'selesai' instead of 'completed' to match constraint
         notes: notes,
         created_at: new Date(),
         updated_at: new Date()
@@ -136,7 +136,7 @@ class SK16Service {
       await trx('assessment')
         .where('id', assessmentId)
         .update({
-          organization_name: data.organization_name,
+          title: data.organization_name, // Use 'title' column
           assessment_date: data.assessment_date,
           notes: notes,
           updated_at: new Date()
