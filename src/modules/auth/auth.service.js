@@ -1,6 +1,6 @@
 const { getConnection } = require('../../config/database');
 const jwt = require('jsonwebtoken');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const { randomUUID } = require('crypto');
 const logger = require('../../utils/logger-simple');
 const ldapService = require('../../services/ldap.service');
