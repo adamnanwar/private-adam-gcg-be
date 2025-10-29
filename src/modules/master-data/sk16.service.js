@@ -1,5 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
-const db = require('../../config/database');
+const { db } = require('../../config/database');
 
 class SK16Service {
   constructor() {
@@ -21,7 +21,7 @@ class SK16Service {
           'assessment.notes',
           'assessment.created_at',
           'assessment.updated_at',
-          'users.full_name as assessor_name'
+          'users.name as assessor_name' // Use 'name' column instead of 'full_name'
         )
         .leftJoin('users', 'assessment.assessor_id', 'users.id')
         .where('assessment.notes', 'like', '[SK16]%')
@@ -51,7 +51,7 @@ class SK16Service {
       const assessment = await this.db('assessment')
         .select(
           'assessment.*',
-          'users.full_name as assessor_name',
+          'users.name as assessor_name', // Use 'name' column instead of 'full_name'
           'users.email as assessor_email'
         )
         .leftJoin('users', 'assessment.assessor_id', 'users.id')
@@ -143,7 +143,7 @@ class SK16Service {
         });
 
       // Delete existing hierarchy
-      await trx('assessment_kka').where('assessment_id', assessmentId).del();
+      await trx('kka').where('assessment_id', assessmentId).del(); // Use 'kka' table instead of 'assessment_kka'
 
       // Create new hierarchy
       await this.createHierarchy(trx, assessmentId, data.hierarchy);
@@ -187,27 +187,27 @@ class SK16Service {
    * Get assessment hierarchy with scores and evidence
    */
   async getAssessmentHierarchy(assessmentId) {
-    const kkas = await this.db('assessment_kka')
+    const kkas = await this.db('kka') // Use 'kka' table instead of 'assessment_kka'
       .select('*')
       .where('assessment_id', assessmentId)
       .orderBy('sort', 'asc');
 
     for (const kka of kkas) {
-      const aspects = await this.db('assessment_aspect')
+      const aspects = await this.db('aspect') // Use 'aspect' table instead of 'assessment_aspect'
         .select('*')
-        .where('assessment_kka_id', kka.id)
+        .where('kka_id', kka.id) // Use 'kka_id' instead of 'assessment_kka_id'
         .orderBy('sort', 'asc');
 
       for (const aspect of aspects) {
-        const parameters = await this.db('assessment_parameter')
+        const parameters = await this.db('parameter') // Use 'parameter' table instead of 'assessment_parameter'
           .select('*')
-          .where('assessment_aspect_id', aspect.id)
+          .where('aspect_id', aspect.id) // Use 'aspect_id' instead of 'assessment_aspect_id'
           .orderBy('sort', 'asc');
 
         for (const parameter of parameters) {
-          const factors = await this.db('assessment_factor')
+          const factors = await this.db('factor') // Use 'factor' table instead of 'assessment_factor'
             .select('*')
-            .where('assessment_parameter_id', parameter.id)
+            .where('parameter_id', parameter.id) // Use 'parameter_id' instead of 'assessment_parameter_id'
             .orderBy('sort', 'asc');
 
           for (const factor of factors) {
@@ -215,7 +215,7 @@ class SK16Service {
             const response = await this.db('response')
               .select('score', 'comment')
               .where('assessment_id', assessmentId)
-              .where('assessment_factor_id', factor.id)
+              .where('factor_id', factor.id) // Use 'factor_id' instead of 'assessment_factor_id'
               .first();
 
             factor.score = response ? parseFloat(response.score) : null;
@@ -224,7 +224,7 @@ class SK16Service {
             // Get evidence
             const evidence = await this.db('evidence')
               .select('*')
-              .where('target_type', 'assessment_factor')
+              .where('target_type', 'factor') // Use 'factor' instead of 'assessment_factor'
               .where('target_id', factor.id);
 
             factor.evidence = evidence || [];
@@ -249,10 +249,9 @@ class SK16Service {
     for (const kka of hierarchy) {
       const kkaId = uuidv4();
 
-      await trx('assessment_kka').insert({
+      await trx('kka').insert({ // Use 'kka' table instead of 'assessment_kka'
         id: kkaId,
         assessment_id: assessmentId,
-        client_id: kka.client_id || kkaId,
         kode: kka.kode,
         nama: kka.nama,
         deskripsi: kka.deskripsi || null,
@@ -265,11 +264,10 @@ class SK16Service {
       for (const aspect of kka.aspects || []) {
         const aspectId = uuidv4();
 
-        await trx('assessment_aspect').insert({
+        await trx('aspect').insert({ // Use 'aspect' table instead of 'assessment_aspect'
           id: aspectId,
           assessment_id: assessmentId,
-          assessment_kka_id: kkaId,
-          client_id: aspect.client_id || aspectId,
+          kka_id: kkaId, // Use 'kka_id' instead of 'assessment_kka_id'
           kode: aspect.kode,
           nama: aspect.nama,
           weight: aspect.weight || 1.00,
@@ -281,11 +279,11 @@ class SK16Service {
         for (const parameter of aspect.parameters || []) {
           const parameterId = uuidv4();
 
-          await trx('assessment_parameter').insert({
+          await trx('parameter').insert({ // Use 'parameter' table instead of 'assessment_parameter'
             id: parameterId,
             assessment_id: assessmentId,
-            assessment_aspect_id: aspectId,
-            client_id: parameter.client_id || parameterId,
+            kka_id: kkaId, // Add kka_id
+            aspect_id: aspectId, // Use 'aspect_id' instead of 'assessment_aspect_id'
             kode: parameter.kode,
             nama: parameter.nama,
             weight: parameter.weight || 1.00,
@@ -297,11 +295,12 @@ class SK16Service {
           for (const factor of parameter.factors || []) {
             const factorId = uuidv4();
 
-            await trx('assessment_factor').insert({
+            await trx('factor').insert({ // Use 'factor' table instead of 'assessment_factor'
               id: factorId,
               assessment_id: assessmentId,
-              assessment_parameter_id: parameterId,
-              client_id: factor.client_id || factorId,
+              kka_id: kkaId, // Add kka_id
+              aspect_id: aspectId, // Add aspect_id
+              parameter_id: parameterId, // Use 'parameter_id' instead of 'assessment_parameter_id'
               kode: factor.kode,
               nama: factor.nama,
               deskripsi: factor.deskripsi || null,
@@ -316,7 +315,7 @@ class SK16Service {
               await trx('response').insert({
                 id: uuidv4(),
                 assessment_id: assessmentId,
-                assessment_factor_id: factorId,
+                factor_id: factorId, // Use 'factor_id' instead of 'assessment_factor_id'
                 score: factor.score,
                 comment: factor.comment || null,
                 created_by: assessmentId, // Use assessment ID as created_by for now
@@ -330,7 +329,7 @@ class SK16Service {
               for (const ev of factor.evidence) {
                 await trx('evidence').insert({
                   id: uuidv4(),
-                  target_type: 'assessment_factor',
+                  target_type: 'factor', // Use 'factor' instead of 'assessment_factor'
                   target_id: factorId,
                   kind: ev.kind || 'document',
                   uri: ev.uri,
