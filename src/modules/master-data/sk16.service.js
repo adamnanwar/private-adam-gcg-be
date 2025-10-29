@@ -99,7 +99,7 @@ class SK16Service {
       });
 
       // Create hierarchy (KKA, Aspect, Parameter, Factor)
-      await this.createHierarchy(trx, assessmentId, data.hierarchy);
+      await this.createHierarchy(trx, assessmentId, data.hierarchy, userId);
 
       await trx.commit();
 
@@ -146,7 +146,7 @@ class SK16Service {
       await trx('kka').where('assessment_id', assessmentId).del(); // Use 'kka' table instead of 'assessment_kka'
 
       // Create new hierarchy
-      await this.createHierarchy(trx, assessmentId, data.hierarchy);
+      await this.createHierarchy(trx, assessmentId, data.hierarchy, userId);
 
       await trx.commit();
 
@@ -245,7 +245,7 @@ class SK16Service {
   /**
    * Create hierarchy with scores and evidence
    */
-  async createHierarchy(trx, assessmentId, hierarchy) {
+  async createHierarchy(trx, assessmentId, hierarchy, userId) {
     for (const kka of hierarchy) {
       const kkaId = uuidv4();
 
@@ -318,7 +318,7 @@ class SK16Service {
                 factor_id: factorId, // Use 'factor_id' instead of 'assessment_factor_id'
                 score: factor.score,
                 comment: factor.comment || null,
-                created_by: assessmentId, // Use assessment ID as created_by for now
+                created_by: userId, // Use actual user ID
                 created_at: new Date(),
                 updated_at: new Date()
               });
@@ -337,7 +337,7 @@ class SK16Service {
                   file_size: ev.file_size || 0,
                   mime_type: ev.mime_type || 'application/octet-stream',
                   note: ev.note || null,
-                  uploaded_by: assessmentId, // Use assessment ID as uploaded_by for now
+                  uploaded_by: userId, // Use actual user ID
                   created_at: new Date(),
                   updated_at: new Date()
                 });
