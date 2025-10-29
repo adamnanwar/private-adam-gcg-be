@@ -8,7 +8,9 @@ module.exports = {
       port: process.env.DB_PORT || 5432,
       database: process.env.DB_NAME || 'gcg',
       user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'admin123'
+      password: process.env.DB_PASSWORD || 'admin123',
+      connectionTimeout: 60000,  // 60 seconds
+      acquireConnectionTimeout: 60000  // 60 seconds
     },
     migrations: {
       directory: './src/database/migrations'
@@ -18,7 +20,13 @@ module.exports = {
     },
     pool: {
       min: 2,
-      max: 10
+      max: 10,
+      acquireTimeoutMillis: 60000,  // 60 seconds
+      createTimeoutMillis: 60000,   // 60 seconds
+      destroyTimeoutMillis: 5000,
+      idleTimeoutMillis: 30000,
+      reapIntervalMillis: 1000,
+      createRetryIntervalMillis: 200
     }
   },
 
