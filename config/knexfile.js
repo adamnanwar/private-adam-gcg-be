@@ -9,8 +9,9 @@ module.exports = {
       database: process.env.DB_NAME || 'gcg',
       user: process.env.DB_USER || 'postgres',
       password: process.env.DB_PASSWORD || 'admin123',
-      connectionTimeout: 60000,  // 60 seconds
-      acquireConnectionTimeout: 60000  // 60 seconds
+      statement_timeout: 60000,  // 60 seconds query timeout
+      query_timeout: 60000,       // 60 seconds
+      connectionTimeoutMillis: 60000  // PostgreSQL connection timeout
     },
     migrations: {
       directory: './src/database/migrations'
