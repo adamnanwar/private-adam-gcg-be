@@ -1,5 +1,5 @@
 const sk16Service = require('./sk16.service');
-const { successResponse, errorResponse } = require('../../utils/response');
+const { success, error } = require('../../utils/response');
 
 class SK16Controller {
   /**
@@ -9,10 +9,10 @@ class SK16Controller {
   async getAllSK16Assessments(req, res) {
     try {
       const assessments = await sk16Service.getAllSK16Assessments();
-      return successResponse(res, assessments, 'SK16 assessments retrieved successfully');
-    } catch (error) {
-      console.error('[SK16Controller] Error getting SK16 assessments:', error);
-      return errorResponse(res, 'Failed to retrieve SK16 assessments', 500);
+      return success(res, assessments, 'SK16 assessments retrieved successfully');
+    } catch (err) {
+      console.error('[SK16Controller] Error getting SK16 assessments:', err);
+      return error(res, 'Failed to retrieve SK16 assessments', 500);
     }
   }
 
@@ -24,15 +24,15 @@ class SK16Controller {
     try {
       const { id } = req.params;
       const assessment = await sk16Service.getSK16AssessmentById(id);
-      return successResponse(res, assessment, 'SK16 assessment retrieved successfully');
-    } catch (error) {
-      console.error('[SK16Controller] Error getting SK16 assessment:', error);
+      return success(res, assessment, 'SK16 assessment retrieved successfully');
+    } catch (err) {
+      console.error('[SK16Controller] Error getting SK16 assessment:', err);
 
-      if (error.message === 'SK16 assessment not found') {
-        return errorResponse(res, 'SK16 assessment not found', 404);
+      if (err.message === 'SK16 assessment not found') {
+        return error(res, 'SK16 assessment not found', 404);
       }
 
-      return errorResponse(res, 'Failed to retrieve SK16 assessment', 500);
+      return error(res, 'Failed to retrieve SK16 assessment', 500);
     }
   }
 
@@ -44,10 +44,10 @@ class SK16Controller {
     try {
       const userId = req.user.id; // From auth middleware
       const assessment = await sk16Service.createSK16Assessment(req.body, userId);
-      return successResponse(res, assessment, 'SK16 assessment created successfully', 201);
-    } catch (error) {
-      console.error('[SK16Controller] Error creating SK16 assessment:', error);
-      return errorResponse(res, 'Failed to create SK16 assessment: ' + error.message, 500);
+      return success(res, assessment, 'SK16 assessment created successfully', 201);
+    } catch (err) {
+      console.error('[SK16Controller] Error creating SK16 assessment:', err);
+      return error(res, 'Failed to create SK16 assessment: ' + err.message, 500);
     }
   }
 
@@ -60,15 +60,15 @@ class SK16Controller {
       const { id } = req.params;
       const userId = req.user.id; // From auth middleware
       const assessment = await sk16Service.updateSK16Assessment(id, req.body, userId);
-      return successResponse(res, assessment, 'SK16 assessment updated successfully');
-    } catch (error) {
-      console.error('[SK16Controller] Error updating SK16 assessment:', error);
+      return success(res, assessment, 'SK16 assessment updated successfully');
+    } catch (err) {
+      console.error('[SK16Controller] Error updating SK16 assessment:', err);
 
-      if (error.message === 'SK16 assessment not found') {
-        return errorResponse(res, 'SK16 assessment not found', 404);
+      if (err.message === 'SK16 assessment not found') {
+        return error(res, 'SK16 assessment not found', 404);
       }
 
-      return errorResponse(res, 'Failed to update SK16 assessment: ' + error.message, 500);
+      return error(res, 'Failed to update SK16 assessment: ' + err.message, 500);
     }
   }
 
@@ -80,15 +80,15 @@ class SK16Controller {
     try {
       const { id } = req.params;
       const result = await sk16Service.deleteSK16Assessment(id);
-      return successResponse(res, result, 'SK16 assessment deleted successfully');
-    } catch (error) {
-      console.error('[SK16Controller] Error deleting SK16 assessment:', error);
+      return success(res, result, 'SK16 assessment deleted successfully');
+    } catch (err) {
+      console.error('[SK16Controller] Error deleting SK16 assessment:', err);
 
-      if (error.message === 'SK16 assessment not found') {
-        return errorResponse(res, 'SK16 assessment not found', 404);
+      if (err.message === 'SK16 assessment not found') {
+        return error(res, 'SK16 assessment not found', 404);
       }
 
-      return errorResponse(res, 'Failed to delete SK16 assessment', 500);
+      return error(res, 'Failed to delete SK16 assessment', 500);
     }
   }
 }

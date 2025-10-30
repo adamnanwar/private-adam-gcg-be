@@ -7,7 +7,7 @@ class SK16Service {
   }
 
   /**
-   * Get all SK16 master data assessments with full hierarchy and scores
+   * Get all SK16 master data assessments with basic info (no hierarchy for list view)
    */
   async getAllSK16Assessments() {
     try {
@@ -27,13 +27,18 @@ class SK16Service {
         .where('assessment.notes', 'like', '[SK16]%')
         .orderBy('assessment.assessment_date', 'desc');
 
-      // For each assessment, get the full hierarchy with scores
+      // For each assessment, calculate overall score from responses (without loading full hierarchy)
       for (const assessment of assessments) {
-        const hierarchy = await this.getAssessmentHierarchy(assessment.id);
-        assessment.hierarchy = hierarchy;
+        const scores = await this.db('response')
+          .where('assessment_id', assessment.id)
+          .select('score');
 
-        // Calculate overall score
-        assessment.overall_score = this.calculateOverallScore(hierarchy);
+        if (scores.length > 0) {
+          const totalScore = scores.reduce((sum, r) => sum + parseFloat(r.score || 0), 0);
+          assessment.overall_score = (totalScore / scores.length).toFixed(2);
+        } else {
+          assessment.overall_score = 0;
+        }
       }
 
       return assessments;
@@ -187,59 +192,166 @@ class SK16Service {
    * Get assessment hierarchy with scores and evidence
    */
   async getAssessmentHierarchy(assessmentId) {
-    const kkas = await this.db('kka') // Use 'kka' table instead of 'assessment_kka'
-      .select('*')
-      .where('assessment_id', assessmentId)
-      .orderBy('sort', 'asc');
+    // Single optimized query with JOINs to get all hierarchy data at once
+    const results = await this.db('kka')
+      .select(
+        // KKA fields
+        'kka.id as kka_id',
+        'kka.kode as kka_kode',
+        'kka.nama as kka_nama',
+        'kka.deskripsi as kka_deskripsi',
+        'kka.weight as kka_weight',
+        'kka.sort as kka_sort',
+        'kka.created_at as kka_created_at',
+        'kka.updated_at as kka_updated_at',
+        // Aspect fields
+        'aspect.id as aspect_id',
+        'aspect.kode as aspect_kode',
+        'aspect.nama as aspect_nama',
+        'aspect.weight as aspect_weight',
+        'aspect.sort as aspect_sort',
+        'aspect.created_at as aspect_created_at',
+        'aspect.updated_at as aspect_updated_at',
+        // Parameter fields
+        'parameter.id as parameter_id',
+        'parameter.kode as parameter_kode',
+        'parameter.nama as parameter_nama',
+        'parameter.weight as parameter_weight',
+        'parameter.sort as parameter_sort',
+        'parameter.created_at as parameter_created_at',
+        'parameter.updated_at as parameter_updated_at',
+        // Factor fields
+        'factor.id as factor_id',
+        'factor.kode as factor_kode',
+        'factor.nama as factor_nama',
+        'factor.deskripsi as factor_deskripsi',
+        'factor.max_score as factor_max_score',
+        'factor.sort as factor_sort',
+        'factor.created_at as factor_created_at',
+        'factor.updated_at as factor_updated_at',
+        // Response fields
+        'response.score',
+        'response.comment'
+      )
+      .where('kka.assessment_id', assessmentId)
+      .leftJoin('aspect', 'aspect.kka_id', 'kka.id')
+      .leftJoin('parameter', 'parameter.aspect_id', 'aspect.id')
+      .leftJoin('factor', 'factor.parameter_id', 'parameter.id')
+      .leftJoin('response', function() {
+        this.on('response.factor_id', '=', 'factor.id');
+      })
+      .where(function() {
+        this.whereNull('response.assessment_id')
+            .orWhere('response.assessment_id', assessmentId);
+      })
+      .orderBy([
+        { column: 'kka.sort', order: 'asc' },
+        { column: 'aspect.sort', order: 'asc' },
+        { column: 'parameter.sort', order: 'asc' },
+        { column: 'factor.sort', order: 'asc' }
+      ]);
 
-    for (const kka of kkas) {
-      const aspects = await this.db('aspect') // Use 'aspect' table instead of 'assessment_aspect'
+    // Get all evidence in a single query
+    const factorIds = results
+      .filter(r => r.factor_id)
+      .map(r => r.factor_id)
+      .filter((id, index, self) => self.indexOf(id) === index); // unique IDs
+
+    let evidenceMap = {};
+    if (factorIds.length > 0) {
+      const allEvidence = await this.db('evidence')
         .select('*')
-        .where('kka_id', kka.id) // Use 'kka_id' instead of 'assessment_kka_id'
-        .orderBy('sort', 'asc');
+        .where('target_type', 'factor')
+        .whereIn('target_id', factorIds);
 
-      for (const aspect of aspects) {
-        const parameters = await this.db('parameter') // Use 'parameter' table instead of 'assessment_parameter'
-          .select('*')
-          .where('aspect_id', aspect.id) // Use 'aspect_id' instead of 'assessment_aspect_id'
-          .orderBy('sort', 'asc');
-
-        for (const parameter of parameters) {
-          const factors = await this.db('factor') // Use 'factor' table instead of 'assessment_factor'
-            .select('*')
-            .where('parameter_id', parameter.id) // Use 'parameter_id' instead of 'assessment_parameter_id'
-            .orderBy('sort', 'asc');
-
-          for (const factor of factors) {
-            // Get score from response table
-            const response = await this.db('response')
-              .select('score', 'comment')
-              .where('assessment_id', assessmentId)
-              .where('factor_id', factor.id) // Use 'factor_id' instead of 'assessment_factor_id'
-              .first();
-
-            factor.score = response ? parseFloat(response.score) : null;
-            factor.comment = response ? response.comment : null;
-
-            // Get evidence
-            const evidence = await this.db('evidence')
-              .select('*')
-              .where('target_type', 'factor') // Use 'factor' instead of 'assessment_factor'
-              .where('target_id', factor.id);
-
-            factor.evidence = evidence || [];
-          }
-
-          parameter.factors = factors;
-        }
-
-        aspect.parameters = parameters;
-      }
-
-      kka.aspects = aspects;
+      // Group evidence by factor_id
+      evidenceMap = allEvidence.reduce((acc, ev) => {
+        if (!acc[ev.target_id]) acc[ev.target_id] = [];
+        acc[ev.target_id].push(ev);
+        return acc;
+      }, {});
     }
 
-    return kkas;
+    // Transform flat results into nested hierarchy structure
+    const kkaMap = {};
+
+    for (const row of results) {
+      // Build KKA
+      if (!kkaMap[row.kka_id]) {
+        kkaMap[row.kka_id] = {
+          id: row.kka_id,
+          kode: row.kka_kode,
+          nama: row.kka_nama,
+          deskripsi: row.kka_deskripsi,
+          weight: row.kka_weight,
+          sort: row.kka_sort,
+          created_at: row.kka_created_at,
+          updated_at: row.kka_updated_at,
+          aspects: []
+        };
+      }
+
+      const kka = kkaMap[row.kka_id];
+
+      // Build Aspect
+      if (row.aspect_id) {
+        let aspect = kka.aspects.find(a => a.id === row.aspect_id);
+        if (!aspect) {
+          aspect = {
+            id: row.aspect_id,
+            kode: row.aspect_kode,
+            nama: row.aspect_nama,
+            weight: row.aspect_weight,
+            sort: row.aspect_sort,
+            created_at: row.aspect_created_at,
+            updated_at: row.aspect_updated_at,
+            parameters: []
+          };
+          kka.aspects.push(aspect);
+        }
+
+        // Build Parameter
+        if (row.parameter_id) {
+          let parameter = aspect.parameters.find(p => p.id === row.parameter_id);
+          if (!parameter) {
+            parameter = {
+              id: row.parameter_id,
+              kode: row.parameter_kode,
+              nama: row.parameter_nama,
+              weight: row.parameter_weight,
+              sort: row.parameter_sort,
+              created_at: row.parameter_created_at,
+              updated_at: row.parameter_updated_at,
+              factors: []
+            };
+            aspect.parameters.push(parameter);
+          }
+
+          // Build Factor
+          if (row.factor_id) {
+            let factor = parameter.factors.find(f => f.id === row.factor_id);
+            if (!factor) {
+              factor = {
+                id: row.factor_id,
+                kode: row.factor_kode,
+                nama: row.factor_nama,
+                deskripsi: row.factor_deskripsi,
+                max_score: row.factor_max_score,
+                sort: row.factor_sort,
+                created_at: row.factor_created_at,
+                updated_at: row.factor_updated_at,
+                score: row.score ? parseFloat(row.score) : null,
+                comment: row.comment || null,
+                evidence: evidenceMap[row.factor_id] || []
+              };
+              parameter.factors.push(factor);
+            }
+          }
+        }
+      }
+    }
+
+    return Object.values(kkaMap);
   }
 
   /**
