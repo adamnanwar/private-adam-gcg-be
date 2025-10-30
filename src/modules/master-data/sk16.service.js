@@ -73,6 +73,9 @@ class SK16Service {
       assessment.hierarchy = hierarchy;
       assessment.overall_score = this.calculateOverallScore(hierarchy);
 
+      // Map 'title' to 'organization_name' for frontend compatibility
+      assessment.organization_name = assessment.title;
+
       return assessment;
     } catch (error) {
       console.error('[SK16Service] Error getting SK16 assessment:', error);
@@ -87,6 +90,8 @@ class SK16Service {
     const trx = await this.db.transaction();
 
     try {
+      console.log('[SK16Service] Creating SK16 assessment:', { organization_name: data.organization_name, hierarchy_count: data.hierarchy?.length });
+
       const assessmentId = uuidv4();
 
       // Create assessment with status 'completed' and [SK16] prefix in notes
@@ -103,16 +108,23 @@ class SK16Service {
         updated_at: new Date()
       });
 
+      console.log('[SK16Service] Assessment created, creating hierarchy...');
+
       // Create hierarchy (KKA, Aspect, Parameter, Factor)
       await this.createHierarchy(trx, assessmentId, data.hierarchy, userId);
 
+      console.log('[SK16Service] Hierarchy created, committing transaction...');
+
       await trx.commit();
+
+      console.log('[SK16Service] Transaction committed, fetching created assessment...');
 
       // Return created assessment
       return await this.getSK16AssessmentById(assessmentId);
     } catch (error) {
       await trx.rollback();
       console.error('[SK16Service] Error creating SK16 assessment:', error);
+      console.error('[SK16Service] Error stack:', error.stack);
       throw error;
     }
   }
@@ -226,6 +238,7 @@ class SK16Service {
         'factor.nama as factor_nama',
         'factor.deskripsi as factor_deskripsi',
         'factor.max_score as factor_max_score',
+        'factor.pic_unit_bidang_id as factor_pic_unit_bidang_id',
         'factor.sort as factor_sort',
         'factor.created_at as factor_created_at',
         'factor.updated_at as factor_updated_at',
@@ -337,6 +350,7 @@ class SK16Service {
                 nama: row.factor_nama,
                 deskripsi: row.factor_deskripsi,
                 max_score: row.factor_max_score,
+                pic_unit_bidang_id: row.factor_pic_unit_bidang_id || null,
                 sort: row.factor_sort,
                 created_at: row.factor_created_at,
                 updated_at: row.factor_updated_at,
@@ -358,8 +372,12 @@ class SK16Service {
    * Create hierarchy with scores and evidence
    */
   async createHierarchy(trx, assessmentId, hierarchy, userId) {
+    console.log('[SK16Service] createHierarchy called with', hierarchy?.length, 'KKAs');
+
     for (const kka of hierarchy) {
       const kkaId = uuidv4();
+
+      console.log('[SK16Service] Inserting KKA:', { kode: kka.kode, nama: kka.nama });
 
       await trx('kka').insert({ // Use 'kka' table instead of 'assessment_kka'
         id: kkaId,
@@ -417,6 +435,7 @@ class SK16Service {
               nama: factor.nama,
               deskripsi: factor.deskripsi || null,
               max_score: factor.max_score || 1,
+              pic_unit_bidang_id: factor.pic_unit_bidang_id || null,
               sort: factor.sort || 0,
               created_at: new Date(),
               updated_at: new Date()
@@ -424,6 +443,12 @@ class SK16Service {
 
             // Insert score if provided
             if (factor.score !== null && factor.score !== undefined) {
+              // Validate: score must be >= 0 and <= max_score
+              const maxScore = factor.max_score || 1;
+              if (factor.score < 0 || factor.score > maxScore) {
+                throw new Error(`Score ${factor.score} untuk factor "${factor.nama}" harus antara 0 dan ${maxScore}`);
+              }
+
               await trx('response').insert({
                 id: uuidv4(),
                 assessment_id: assessmentId,
