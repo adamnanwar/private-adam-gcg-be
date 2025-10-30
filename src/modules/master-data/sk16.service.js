@@ -373,6 +373,7 @@ class SK16Service {
    */
   async createHierarchy(trx, assessmentId, hierarchy, userId) {
     console.log('[SK16Service] createHierarchy called with', hierarchy?.length, 'KKAs');
+    console.log('[SK16Service] Full hierarchy data:', JSON.stringify(hierarchy, null, 2));
 
     for (const kka of hierarchy) {
       const kkaId = uuidv4();
@@ -424,6 +425,14 @@ class SK16Service {
 
           for (const factor of parameter.factors || []) {
             const factorId = uuidv4();
+
+            console.log('[SK16Service] Inserting factor:', {
+              kode: factor.kode,
+              nama: factor.nama,
+              max_score: factor.max_score,
+              score: factor.score,
+              pic_unit_bidang_id: factor.pic_unit_bidang_id
+            });
 
             await trx('factor').insert({ // Use 'factor' table instead of 'assessment_factor'
               id: factorId,
