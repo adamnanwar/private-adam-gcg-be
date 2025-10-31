@@ -35,30 +35,7 @@ class DashboardController {
         )
         .leftJoin('factor', 'response.factor_id', 'factor.id');
 
-      if (role !== 'admin') {
-        assessmentQuery.where(builder => {
-          builder
-            .where('assessment.assessor_id', userId)
-            .orWhere('assessment.created_by', userId);
-
-          // Only add unit bidang filter if user has a unit
-          if (userUnitId) {
-            builder.orWhereExists(function() {
-              this.select('*')
-                .from('pic_map')
-                .whereRaw('pic_map.assessment_id = assessment.id')
-                .where(inner => {
-                  inner
-                    .where('pic_map.pic_user_id', userId)
-                    .orWhere('pic_map.unit_bidang_id', userUnitId);
-                });
-            });
-          }
-        });
-
-        aoiQuery.where('aoi.created_by', userId);
-        responseQuery.where('response.created_by', userId);
-      }
+      // No filters - all users (admin and user) can see all statistics
 
       const [assessmentRows, aoiRows, responses] = await Promise.all([
         assessmentQuery,
@@ -173,9 +150,7 @@ class DashboardController {
         .orderBy('period', 'asc')
         .limit(12);
 
-      if (role !== 'admin') {
-        trendsQuery.where('assessor_id', userId);
-      }
+      // No filters - all users can see all assessment trends
 
       const trends = await trendsQuery;
       return res.json(successResponse(trends, 'Assessment trends retrieved successfully'));

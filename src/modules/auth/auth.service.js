@@ -52,11 +52,12 @@ class AuthService {
 
     // --- Normalisasi input - support username atau email
     const inputUser = (email || "").trim();
-    
+
     // Extract username from email if needed (remove @domain)
+    // IMPORTANT: Keep spaces in username (e.g., "admin test")
     const cleanUsername = inputUser.includes('@') ? inputUser.split('@')[0] : inputUser;
-    
-    logger.info(`Login attempt - Input: ${inputUser}, Clean: ${cleanUsername}`);
+
+    logger.info(`Login attempt - Input: "${inputUser}", Clean: "${cleanUsername}"`);
 
     // --- Cari user di DB (by email, username, or name) - hanya user yang aktif
     const db = getConnection();
@@ -67,7 +68,10 @@ class AuthService {
         this.where('users.email', inputUser)
             .orWhere('users.username', cleanUsername)
             .orWhere('users.username', inputUser)
-            .orWhere('users.name', inputUser);
+            .orWhere('users.name', inputUser)
+            // Also try matching with lowercase for case-insensitive search
+            .orWhereRaw('LOWER(users.username) = LOWER(?)', [cleanUsername])
+            .orWhereRaw('LOWER(users.name) = LOWER(?)', [cleanUsername]);
       })
       .andWhere('users.is_active', true)
       .first();

@@ -54,14 +54,33 @@ class LDAPService {
       // Handle username with spaces (like "admin test")
       const cleanUsername = username.trim();
       const userDN = cleanUsername + ldapConfig.accountSuffix;
-      
+
       logger.info(`Attempting LDAP bind for: ${cleanUsername} -> ${userDN}`);
-      
+
       return new Promise((resolve, reject) => {
         this.client.bind(userDN, password, (err) => {
           if (err) {
-            logger.error('LDAP bind failed:', err);
-            reject(new Error('Invalid credentials'));
+            // Detailed error logging to distinguish between different failure reasons
+            const errorCode = err.code || err.name;
+            const errorMsg = err.lde_message || err.message;
+
+            logger.error(`LDAP bind failed for ${cleanUsername}:`, {
+              code: errorCode,
+              message: errorMsg,
+              dn: userDN
+            });
+
+            // Check specific error types
+            if (errorCode === 49 || errorMsg === 'Invalid Credentials') {
+              // Error 49 = Invalid credentials (wrong password OR user doesn't exist)
+              logger.warn(`⚠️  LDAP: Username "${cleanUsername}" atau password salah`);
+              reject(new Error('Username atau password salah'));
+            } else if (errorCode === 'ECONNREFUSED' || errorCode === 'ETIMEDOUT') {
+              logger.error('❌ LDAP server tidak dapat dijangkau');
+              reject(new Error('LDAP server tidak dapat dijangkau'));
+            } else {
+              reject(new Error('Invalid credentials'));
+            }
           } else {
             logger.info('LDAP bind successful for:', cleanUsername);
             resolve();
@@ -216,71 +235,94 @@ class LDAPService {
     try {
       // Method 1: Extract unit from user's DN (prioritize first OU)
       if (userDN) {
+        // IMPORTANT: Only map users from BATAM location
+        const dnLower = userDN.toLowerCase();
+        if (!dnLower.includes('batam')) {
+          logger.info(`[LDAP Auto-Mapping] User ${username} is NOT from BATAM, skipping auto-mapping. DN: ${userDN}`);
+          return null;
+        }
+
         const dnParts = userDN.split(',');
         const ouParts = [];
 
-        // Collect all OU parts
+        // Collect all OU parts (in order - first is most specific)
         for (const part of dnParts) {
           if (part.trim().startsWith('OU=')) {
             ouParts.push(part.trim().substring(3));
           }
         }
 
+        logger.info(`[LDAP Auto-Mapping] User: ${username}, DN: ${userDN}`);
+        logger.info(`[LDAP Auto-Mapping] OU Parts: ${JSON.stringify(ouParts)}`);
+
         // Try to match OU parts in order (first OU has highest priority)
         for (const ouName of ouParts) {
-          // Skip generic OUs like BATAM, JAKARTA, etc
-          if (ouName.toLowerCase() === 'batam' || ouName.toLowerCase() === 'jakarta') {
+          // Skip generic location OUs (BATAM, JAKARTA, etc) and company name
+          if (ouName.toLowerCase() === 'batam' ||
+              ouName.toLowerCase() === 'jakarta' ||
+              ouName.toLowerCase() === 'plnbatam' ||
+              ouName.toLowerCase().includes('provinsi') ||
+              ouName.toLowerCase().includes('region')) {
+            logger.debug(`[LDAP Auto-Mapping] Skipping generic/location OU: ${ouName}`);
             continue;
           }
+
+          logger.info(`[LDAP Auto-Mapping] Trying to match OU: "${ouName}"`);
 
           // Try exact match first
           let unit = await this.db('unit_bidang')
             .whereRaw('LOWER(nama) = LOWER(?)', [ouName])
             .first();
 
-          // If no exact match, try partial match
-          if (!unit) {
-            unit = await this.db('unit_bidang')
-              .where('nama', 'like', `%${ouName}%`)
-              .orWhere('ldap_dn', 'like', `%${ouName}%`)
-              .first();
-          }
-
           if (unit) {
-            logger.info(`LDAP auto-mapping: ${username || 'user'} → ${unit.nama} (from OU: ${ouName})`);
+            logger.info(`✅ LDAP auto-mapping SUCCESS (exact): ${username} → ${unit.nama} (from OU: ${ouName})`);
             return unit;
           }
+
+          // Try partial match with better logic
+          // Match if OU name contains unit name OR unit name contains OU name
+          const units = await this.db('unit_bidang')
+            .where('is_active', true)
+            .select('*');
+
+          for (const candidateUnit of units) {
+            const unitNameLower = candidateUnit.nama.toLowerCase();
+            const ouNameLower = ouName.toLowerCase();
+
+            // Check if they match (either direction)
+            if (unitNameLower.includes(ouNameLower) || ouNameLower.includes(unitNameLower)) {
+              logger.info(`✅ LDAP auto-mapping SUCCESS (partial): ${username} → ${candidateUnit.nama} (from OU: ${ouName})`);
+              return candidateUnit;
+            }
+
+            // Also try matching with kode
+            const kodeLower = candidateUnit.kode.toLowerCase().replace(/-/g, ' ');
+            if (kodeLower.includes(ouNameLower) || ouNameLower.includes(kodeLower)) {
+              logger.info(`✅ LDAP auto-mapping SUCCESS (kode): ${username} → ${candidateUnit.nama} (from OU: ${ouName})`);
+              return candidateUnit;
+            }
+          }
+
+          logger.debug(`[LDAP Auto-Mapping] No match found for OU: "${ouName}"`);
         }
       }
 
       // Method 2: Map by department if available
       if (department) {
+        logger.info(`[LDAP Auto-Mapping] Trying department: ${department}`);
         const unit = await this.db('unit_bidang')
           .where('nama', 'like', `%${department}%`)
           .orWhere('deskripsi', 'like', `%${department}%`)
           .first();
 
         if (unit) {
-          logger.info(`LDAP auto-mapping: ${username || 'user'} → ${unit.nama} (from department: ${department})`);
+          logger.info(`✅ LDAP auto-mapping SUCCESS (department): ${username} → ${unit.nama} (from department: ${department})`);
           return unit;
         }
       }
 
-      // Method 3: Default fallback for non-LDAP users → assign to TEST unit
-      if (!userDN) {
-        const testUnit = await this.db('unit_bidang')
-          .where('kode', 'TEST-UNIT')
-          .orWhere('nama', 'like', '%Test%')
-          .first();
-
-        if (testUnit) {
-          logger.info(`Non-LDAP user ${username || 'user'} → ${testUnit.nama} (default test unit)`);
-          return testUnit;
-        }
-      }
-
-      // If no mapping found, return null (user will have no unit assignment)
-      logger.warn(`No unit mapping found for user: ${username || 'unknown'}, DN: ${userDN || 'none'}`);
+      // If no mapping found, return null (DO NOT assign to TEST unit automatically)
+      logger.warn(`❌ No unit mapping found for user: ${username || 'unknown'}, DN: ${userDN || 'none'}`);
       return null;
     } catch (error) {
       logger.error(`Failed to get user unit from DN ${userDN}:`, error);
@@ -292,56 +334,122 @@ class LDAPService {
     try {
       await this.connect();
       await this.bind(username, password);
-      
+
       // Clean username for search
       const cleanUsername = username.includes('@') ? username.split('@')[0] : username;
-      
-      // If bind successful, get user details
+
+      logger.info(`[LDAP Auth] User ${cleanUsername} bind successful, attempting to get DN...`);
+
+      // After successful bind, user can search for themselves
       // Try to search for user, but handle search failures gracefully
       let users = [];
       try {
-        users = await this.searchUsers(
-          `(sAMAccountName=${cleanUsername})`,
-          ['sAMAccountName', 'mail', 'displayName', 'cn', 'distinguishedName', 'department', 'ou']
-        );
-      } catch (searchError) {
-        logger.warn('LDAP search failed, using bind-only authentication:', searchError);
-        // If search fails but bind succeeded, create minimal user object
-        // Try to map unit based on username
-        let unit = null;
-        try {
-          unit = await this.getUserUnit(null, cleanUsername, null);
-        } catch (unitError) {
-          logger.warn('Failed to map unit for bind-only auth:', unitError);
+        logger.info(`[LDAP Auth] Searching for user: (sAMAccountName=${cleanUsername})`);
+
+        // If username contains spaces, try multiple search patterns
+        let searchFilter;
+        if (cleanUsername.includes(' ')) {
+          // For usernames with spaces like "admin test", try multiple patterns:
+          // 1. Original with spaces
+          // 2. With dots: admin.test
+          // 3. Without spaces: admintest
+          // 4. Search by displayName or cn instead
+          const withDots = cleanUsername.replace(/ /g, '.');
+          const withoutSpaces = cleanUsername.replace(/ /g, '');
+
+          searchFilter = `(|(sAMAccountName=${cleanUsername})(sAMAccountName=${withDots})(sAMAccountName=${withoutSpaces})(cn=${cleanUsername})(displayName=${cleanUsername}))`;
+          logger.info(`[LDAP Auth] Username has spaces, using multi-pattern search: ${searchFilter}`);
+        } else {
+          searchFilter = `(sAMAccountName=${cleanUsername})`;
         }
-        
+
+        users = await this.searchUsers(
+          searchFilter,
+          ['sAMAccountName', 'mail', 'displayName', 'cn', 'distinguishedName', 'department', 'ou', 'memberOf']
+        );
+        logger.info(`[LDAP Auth] Search completed, found ${users.length} users`);
+      } catch (searchError) {
+        logger.error('[LDAP Auth] Search failed after bind:', searchError.message);
+        logger.error('[LDAP Auth] Search error details:', searchError);
+
+        // If search fails but bind succeeded, we cannot get DN -> cannot auto-map
+        logger.warn('⚠️  LDAP search failed -> Cannot auto-map unit (DN not available)');
+        logger.warn('⚠️  User will need manual unit assignment');
+
         return {
           username: cleanUsername,
           email: `${cleanUsername}@plnbatam.com`,
-          name: username, // Use username as fallback name
-          unit: unit,
+          name: cleanUsername,
+          unit: null,
           dn: null
         };
       }
 
       if (users.length > 0) {
         const user = users[0];
-        const userDN = this.getAttributeValue(user.attributes, 'distinguishedName');
+
+        // Debug: Log all attributes received
+        logger.info('[LDAP Auth] User attributes received (raw):');
+        user.attributes.forEach((attr, index) => {
+          // Handle both array and object format
+          const attrType = attr.type || attr.name || attr._type || `attr${index}`;
+          const attrVals = attr.values || attr._vals || (Array.isArray(attr) ? attr : [attr]);
+          const attrVal = Array.isArray(attrVals) ? attrVals[0] : attrVals;
+          logger.info(`  [${index}] ${attrType}: ${attrVal}`);
+        });
+
+        // Try different ways to get DN
+        let userDN = this.getAttributeValue(user.attributes, 'distinguishedName');
+
+        if (!userDN) {
+          // Try using dn from entry object
+          userDN = user.dn || user.objectName;
+        }
+
+        if (!userDN) {
+          // Try to find DN by pattern matching in values
+          for (const attr of user.attributes) {
+            const vals = attr.values || attr._vals || [];
+            for (const val of vals) {
+              if (typeof val === 'string' && val.includes('CN=') && val.includes('DC=plnbatam')) {
+                userDN = val;
+                logger.info(`[LDAP Auth] Found DN by pattern matching: ${userDN}`);
+                break;
+              }
+            }
+            if (userDN) break;
+          }
+        }
+
+        // Ensure DN is string (handle DN object from ldapjs)
+        if (userDN && typeof userDN !== 'string') {
+          userDN = userDN.toString();
+        }
+
+        logger.info(`[LDAP Auth] Final extracted DN (string): ${userDN || 'NULL'}`);
+
+        if (!userDN) {
+          logger.error('[LDAP Auth] ⚠️  distinguishedName not found in LDAP attributes!');
+          logger.error('[LDAP Auth] ⚠️  Cannot auto-map unit without DN');
+        }
+
         let unit = null;
-        
-        // Try to get unit info, but don't fail if it doesn't work
+
+        // Try to get unit info
         try {
           const department = this.getAttributeValue(user.attributes, 'department');
           const ou = this.getAttributeValue(user.attributes, 'ou');
+          logger.info(`[LDAP Auth] Department: ${department || 'null'}, OU attr: ${ou || 'null'}`);
+
           unit = await this.getUserUnit(userDN, username, department || ou);
         } catch (unitError) {
-          logger.warn('Failed to get user unit, proceeding without unit info:', unitError);
+          logger.warn('Failed to get user unit:', unitError.message);
         }
-        
+
         return {
           username: this.getAttributeValue(user.attributes, 'sAMAccountName') || username,
           email: this.getAttributeValue(user.attributes, 'mail') || `${username}@plnbatam.com`,
-          name: this.getAttributeValue(user.attributes, 'displayName') || 
+          name: this.getAttributeValue(user.attributes, 'displayName') ||
                 this.getAttributeValue(user.attributes, 'cn') || username,
           unit: unit,
           dn: userDN
@@ -378,21 +486,34 @@ class LDAPService {
   async createOrUpdateUserFromLDAP(ldapUserData) {
     try {
       const { username, email, name, unit, dn } = ldapUserData;
-      
+
       // Check if user exists
       const existingUser = await this.db('users')
         .where('email', email)
         .orWhere('username', username)
         .first();
 
-      // Determine role based on username
-      const isAdmin = username === 'adminit' || username === 'admin test';
-      
+      // Determine role based on username OR unit
+      const isAdminByUsername = username === 'adminit' || username === 'admin test';
+
+      // IMPORTANT: Users from SEKPER (Sekretariat Perusahaan) are automatically admin
+      const isAdminByUnit = unit && (
+        unit.kode === 'SEKRETARIAT-PERUSAHAAN' ||
+        unit.nama.toLowerCase().includes('sekretariat perusahaan') ||
+        unit.nama.toLowerCase().includes('sekper')
+      );
+
+      const isAdmin = isAdminByUsername || isAdminByUnit;
+
+      if (isAdminByUnit) {
+        logger.info(`🔑 User ${username} is from SEKPER → auto-assigned ADMIN role`);
+      }
+
       const userData = {
         username: username,
         name: name || username,
         email: email,
-        role: isAdmin ? 'admin' : 'user', // adminit and admin test are admin, others are user
+        role: isAdmin ? 'admin' : 'user',
         auth_provider: 'ldap',
         unit_bidang_id: unit ? unit.id : null,
         is_active: true,
@@ -400,17 +521,19 @@ class LDAPService {
       };
 
       if (existingUser) {
-        // Check if update is needed (only update if there are significant changes)
+        // Check if update is needed (including role changes based on unit)
         const needsUpdate =
           existingUser.name !== (name || username) ||
           existingUser.unit_bidang_id !== (unit ? unit.id : null) ||
+          existingUser.role !== (isAdmin ? 'admin' : 'user') ||
           !existingUser.is_active;
 
         if (needsUpdate) {
-          // Update data WITHOUT changing role (preserve existing role)
+          // Update data INCLUDING role (auto-update role based on unit)
           const updateData = {
             name: name || username,
             unit_bidang_id: unit ? unit.id : null,
+            role: isAdmin ? 'admin' : 'user', // Update role based on unit
             is_active: true,
             updated_at: new Date()
           };
@@ -419,9 +542,14 @@ class LDAPService {
             .where('id', existingUser.id)
             .update(updateData);
 
-          logger.info(`Updated existing LDAP user: ${username} → Unit: ${unit ? unit.nama : 'none'} (role preserved: ${existingUser.role})`);
+          const roleChanged = existingUser.role !== updateData.role;
+          if (roleChanged) {
+            logger.info(`✨ Role updated for ${username}: ${existingUser.role} → ${updateData.role} (unit: ${unit ? unit.nama : 'none'})`);
+          }
 
-          // Return updated user with existing role
+          logger.info(`Updated existing LDAP user: ${username} → Unit: ${unit ? unit.nama : 'none'}, Role: ${updateData.role}`);
+
+          // Return updated user
           return { ...existingUser, ...updateData };
         } else {
           // No update needed, just return existing user
