@@ -27,15 +27,20 @@ class SK16Service {
         .where('assessment.notes', 'like', '[SK16]%')
         .orderBy('assessment.assessment_date', 'desc');
 
-      // For each assessment, calculate overall score from responses (without loading full hierarchy)
+      // For each assessment, calculate overall score from factor weights (Master Data SK16)
+      // Score = SUM(factor.weight * factor.max_score) for all factors
       for (const assessment of assessments) {
-        const scores = await this.db('response')
+        const factors = await this.db('factor')
           .where('assessment_id', assessment.id)
-          .select('score');
+          .select('weight', 'max_score');
 
-        if (scores.length > 0) {
-          const totalScore = scores.reduce((sum, r) => sum + parseFloat(r.score || 0), 0);
-          assessment.overall_score = (totalScore / scores.length).toFixed(2);
+        if (factors.length > 0) {
+          const totalScore = factors.reduce((sum, f) => {
+            const weight = parseFloat(f.weight || 0);
+            const maxScore = parseFloat(f.max_score || 1);
+            return sum + (weight * maxScore);
+          }, 0);
+          assessment.overall_score = totalScore.toFixed(2);
         } else {
           assessment.overall_score = 0;
         }
@@ -237,6 +242,7 @@ class SK16Service {
         'factor.kode as factor_kode',
         'factor.nama as factor_nama',
         'factor.deskripsi as factor_deskripsi',
+        'factor.weight as factor_weight',
         'factor.max_score as factor_max_score',
         'factor.pic_unit_bidang_id as factor_pic_unit_bidang_id',
         'factor.sort as factor_sort',
@@ -344,17 +350,23 @@ class SK16Service {
           if (row.factor_id) {
             let factor = parameter.factors.find(f => f.id === row.factor_id);
             if (!factor) {
+              // For SK16 Master Data: score = weight * max_score (Capaian = bobot × nilai)
+              const weight = parseFloat(row.factor_weight || 0);
+              const maxScore = parseFloat(row.factor_max_score || 1);
+              const calculatedScore = weight * maxScore;
+
               factor = {
                 id: row.factor_id,
                 kode: row.factor_kode,
                 nama: row.factor_nama,
                 deskripsi: row.factor_deskripsi,
-                max_score: row.factor_max_score,
+                weight: weight,
+                max_score: maxScore,
                 pic_unit_bidang_id: row.factor_pic_unit_bidang_id || null,
                 sort: row.factor_sort,
                 created_at: row.factor_created_at,
                 updated_at: row.factor_updated_at,
-                score: row.score ? parseFloat(row.score) : null,
+                score: calculatedScore, // Use calculated score (weight * max_score)
                 comment: row.comment || null,
                 evidence: evidenceMap[row.factor_id] || []
               };
@@ -429,6 +441,7 @@ class SK16Service {
             console.log('[SK16Service] Inserting factor:', {
               kode: factor.kode,
               nama: factor.nama,
+              weight: factor.weight,
               max_score: factor.max_score,
               score: factor.score,
               pic_unit_bidang_id: factor.pic_unit_bidang_id
@@ -443,6 +456,7 @@ class SK16Service {
               kode: factor.kode,
               nama: factor.nama,
               deskripsi: factor.deskripsi || null,
+              weight: factor.weight || 1.00, // Store weight from Excel
               max_score: factor.max_score || 1,
               pic_unit_bidang_id: factor.pic_unit_bidang_id || null,
               sort: factor.sort || 0,
