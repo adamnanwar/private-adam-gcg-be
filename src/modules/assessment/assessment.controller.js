@@ -736,6 +736,199 @@ class AssessmentController {
       res.status(500).json(errorResponse('Failed to export assessment', 'EXPORT_ERROR'));
     }
   }
+
+  /**
+   * Submit tindak lanjut (PIC submits evidence)
+   * Changes status from in_progress/revisi to verifikasi
+   */
+  async submitTindakLanjut(req, res) {
+    try {
+      const { id: assessmentId } = req.params;
+      const userId = req.user.id;
+      const db = getConnection();
+
+      // Check if assessment exists
+      const assessment = await db('assessment').where('id', assessmentId).first();
+      if (!assessment) {
+        return res.status(404).json(errorResponse('Assessment not found', 'NOT_FOUND'));
+      }
+
+      // Check if status is in_progress or revisi
+      if (assessment.status !== 'in_progress' && assessment.status !== 'revisi') {
+        return res.status(400).json(errorResponse('Assessment cannot be submitted in current status', 'INVALID_STATUS'));
+      }
+
+      // Update status to verifikasi
+      await db('assessment')
+        .where('id', assessmentId)
+        .update({
+          status: 'verifikasi',
+          updated_at: new Date()
+        });
+
+      logger.info(`Assessment ${assessmentId} submitted for verification by user ${userId}`);
+
+      return res.json(successResponse({ assessmentId }, 'Assessment submitted for verification'));
+    } catch (error) {
+      logger.error('Error in submitTindakLanjut:', error);
+      return res.status(500).json(errorResponse('Failed to submit assessment', 'INTERNAL_ERROR'));
+    }
+  }
+
+  /**
+   * Verify assessment (Assessor verifies and scores)
+   * Includes auto-create AOI logic if score < minimum threshold
+   */
+  async verifyAssessment(req, res) {
+    try {
+      const { id: assessmentId } = req.params;
+      const { action, scores, revisionNotes } = req.body;
+      const userId = req.user.id;
+      const db = getConnection();
+
+      // Validate request
+      if (!action || !['approve', 'reject'].includes(action)) {
+        return res.status(400).json(errorResponse('Action must be approve or reject', 'INVALID_ACTION'));
+      }
+
+      // Check if assessment exists
+      const assessment = await db('assessment').where('id', assessmentId).first();
+      if (!assessment) {
+        return res.status(404).json(errorResponse('Assessment not found', 'NOT_FOUND'));
+      }
+
+      // Check if status is verifikasi
+      if (assessment.status !== 'verifikasi') {
+        return res.status(400).json(errorResponse('Assessment is not ready for verification', 'INVALID_STATUS'));
+      }
+
+      if (action === 'reject') {
+        // Reject: change status to in_progress (not 'revisi' as it's not in allowed values)
+        await db('assessment')
+          .where('id', assessmentId)
+          .update({
+            status: 'in_progress',  // Use valid status value instead of 'revisi'
+            updated_at: new Date()
+          });
+
+        // Save revision notes if provided
+        if (revisionNotes) {
+          await db('assessment_revisions').insert({
+            id: randomUUID(),
+            assessment_id: assessmentId,
+            reason: 'Verification rejected',
+            notes: revisionNotes,
+            requested_by: userId,
+            status: 'pending',
+            created_at: new Date(),
+            updated_at: new Date()
+          });
+        }
+
+        logger.info(`Assessment ${assessmentId} rejected by assessor ${userId}`);
+        return res.json(successResponse({ assessmentId }, 'Assessment rejected for revision'));
+      }
+
+      // Action = approve
+      // Save scores to 'response' table (not 'factor_score')
+      if (scores && Array.isArray(scores)) {
+        for (const scoreData of scores) {
+          const { factorId, score, comment } = scoreData;
+
+          // Check if response already exists
+          const existingResponse = await db('response')
+            .where({ assessment_id: assessmentId, factor_id: factorId })
+            .first();
+
+          if (existingResponse) {
+            await db('response')
+              .where({ assessment_id: assessmentId, factor_id: factorId })
+              .update({
+                score,
+                comment: comment || null,
+                updated_at: new Date()
+              });
+          } else {
+            await db('response').insert({
+              id: randomUUID(),
+              assessment_id: assessmentId,
+              factor_id: factorId,
+              score,
+              comment: comment || null,
+              created_by: userId,
+              created_at: new Date(),
+              updated_at: new Date()
+            });
+          }
+        }
+      }
+
+      // Calculate overall score (rata-rata dari semua response scores)
+      const allScores = await db('response')
+        .where('assessment_id', assessmentId)
+        .select('score');
+
+      let overallScore = 0;
+      if (allScores.length > 0) {
+        const totalScore = allScores.reduce((sum, s) => sum + parseFloat(s.score), 0);
+        overallScore = totalScore / allScores.length;
+      }
+
+      // Update assessment status to selesai
+      await db('assessment')
+        .where('id', assessmentId)
+        .update({
+          status: 'selesai',
+          updated_at: new Date()
+        });
+
+      logger.info(`Assessment ${assessmentId} approved with overall score: ${overallScore.toFixed(2)}`);
+
+      // Check AOI minimum score threshold
+      const aoiSetting = await db('settings')
+        .where('key', 'aoi_minimum_score')
+        .first();
+
+      const minimumScore = aoiSetting ? parseFloat(aoiSetting.value) : 0.75;
+
+      // Auto-create AOI if overall score < minimum
+      if (overallScore < minimumScore) {
+        logger.info(`Overall score ${overallScore.toFixed(2)} is below minimum ${minimumScore.toFixed(2)}, creating AOI...`);
+
+        const aoiId = randomUUID();
+        await db('aoi').insert({
+          id: aoiId,
+          assessment_id: assessmentId,
+          nama: `AOI - ${assessment.title}`,
+          recommendation: `Assessment score (${(overallScore * 100).toFixed(0)}%) is below threshold (${(minimumScore * 100).toFixed(0)}%). Requires improvement action.`,
+          status: 'draft',
+          priority: overallScore < 0.5 ? 'high' : 'medium',
+          created_by: userId,
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+
+        logger.info(`AOI ${aoiId} created automatically for assessment ${assessmentId}`);
+
+        return res.json(successResponse({
+          assessmentId,
+          overallScore: parseFloat(overallScore.toFixed(2)),
+          aoiCreated: true,
+          aoiId
+        }, 'Assessment approved. AOI created due to low score.'));
+      }
+
+      return res.json(successResponse({
+        assessmentId,
+        overallScore: parseFloat(overallScore.toFixed(2)),
+        aoiCreated: false
+      }, 'Assessment approved successfully'));
+
+    } catch (error) {
+      logger.error('Error in verifyAssessment:', error);
+      return res.status(500).json(errorResponse('Failed to verify assessment', 'INTERNAL_ERROR'));
+    }
+  }
 }
 
 module.exports = new AssessmentController();

@@ -44,6 +44,72 @@ class EvidenceService {
     this.upload = upload;
   }
 
+  async uploadEvidenceGeneric(targetType, targetId, file, note, userId, assessmentId) {
+    try {
+      // Map target_type to database constraint values
+      // Database only allows 'kka' or 'aoi', so map accordingly
+      let dbTargetType = targetType;
+      let target;
+
+      switch (targetType) {
+        case 'factor':
+          target = await this.db('factor').where('id', targetId).first();
+          if (!target) throw new Error('Factor not found');
+          // Map 'factor' to 'kka' for database constraint
+          dbTargetType = 'kka';
+          break;
+        case 'parameter':
+          target = await this.db('parameter').where('id', targetId).first();
+          if (!target) throw new Error('Parameter not found');
+          // Map 'parameter' to 'kka' for database constraint
+          dbTargetType = 'kka';
+          break;
+        case 'aoi':
+          target = await this.db('aoi').where('id', targetId).first();
+          if (!target) throw new Error('AOI not found');
+          dbTargetType = 'aoi';
+          break;
+        default:
+          throw new Error('Invalid target type');
+      }
+
+      // Create evidence record with correct database column names
+      // Based on actual table structure:
+      // - filename (stored filename)
+      // - original_filename (original file name)
+      // - file_path (path to file)
+      // - mime_type (file MIME type)
+      // - file_size (file size)
+      // - note (description/note)
+      // - uploaded_by (user ID)
+      // - assessment_id (REQUIRED for querying)
+      const evidence = {
+        id: randomUUID(),
+        target_type: dbTargetType,  // Use mapped value: 'kka' or 'aoi'
+        target_id: targetId,
+        assessment_id: assessmentId,          // CRITICAL: Link to assessment
+        filename: file.filename,              // Stored filename
+        original_filename: file.originalname, // Original filename
+        file_path: file.path,                 // File path
+        mime_type: file.mimetype,             // MIME type
+        file_size: file.size,                 // File size
+        note: note || '',                     // Note/description
+        uploaded_by: userId,                  // Uploader user ID
+        created_at: new Date(),
+        updated_at: new Date()
+      };
+
+      await this.db('evidence').insert(evidence);
+
+      logger.info(`📎 Evidence uploaded for ${targetType} ${targetId} by user ${userId}`);
+
+      return evidence;
+    } catch (error) {
+      logger.error('Error in uploadEvidenceGeneric:', error);
+      throw error;
+    }
+  }
+
   async uploadEvidence(assignmentId, file, note, userId) {
     try {
       // Verify assignment belongs to user
@@ -65,20 +131,23 @@ class EvidenceService {
         throw new Error('Assignment not found or unauthorized');
       }
 
-      if (assignment.status === 'completed') {
+      if (assignment.status === 'selesai') {
         throw new Error('Assessment already completed; evidence changes are locked');
       }
 
-      // Create evidence record
+      // Create evidence record with correct database column names
       const evidence = {
         id: randomUUID(),
-        target_type: 'factor',
+        target_type: 'kka',  // Use 'kka' instead of 'factor' for database constraint
         target_id: assignment.factor_id,
-        kind: file.mimetype,
-        uri: `/uploads/evidence/${file.filename}`,
-        note: note || '',
-        uploaded_by: userId,
-        assignment_id: assignmentId,
+        filename: file.filename,              // Stored filename
+        original_filename: file.originalname, // Original filename
+        file_path: file.path,                 // File path
+        mime_type: file.mimetype,             // MIME type
+        file_size: file.size,                 // File size
+        note: note || '',                     // Note/description
+        uploaded_by: userId,                  // Uploader user ID
+        assessment_id: assignment.assessment_id, // Link to assessment
         created_at: new Date(),
         updated_at: new Date()
       };
@@ -130,26 +199,48 @@ class EvidenceService {
 
   async deleteEvidence(evidenceId, userId) {
     try {
+      // Get evidence first
       const evidence = await this.db('evidence')
-        .leftJoin('pic_map', 'evidence.assignment_id', 'pic_map.id')
-        .leftJoin('assessment', 'pic_map.assessment_id', 'assessment.id')
-        .select('evidence.*', 'assessment.status')
-        .where('evidence.id', evidenceId)
-        .andWhere('pic_map.pic_user_id', userId)
+        .where('id', evidenceId)
         .first();
 
       if (!evidence) {
-        throw new Error('Evidence not found or unauthorized');
+        throw new Error('Evidence not found');
       }
 
-      if (evidence.status === 'completed') {
-        throw new Error('Assessment already completed; evidence changes are locked');
+      // Check authorization - user must be either the uploader or have admin role
+      // For now, we'll allow the uploader to delete their own evidence
+      if (evidence.uploaded_by !== userId) {
+        // If there's an assignment_id, check if user is the assignee
+        if (evidence.assignment_id) {
+          const assignment = await this.db('pic_map')
+            .where('id', evidence.assignment_id)
+            .andWhere('pic_user_id', userId)
+            .first();
+
+          if (!assignment) {
+            throw new Error('Evidence not found or unauthorized');
+          }
+
+          // Check if assessment is completed
+          const assessment = await this.db('assessment')
+            .where('id', assignment.assessment_id)
+            .first();
+
+          if (assessment && assessment.status === 'selesai') {
+            throw new Error('Assessment already completed; evidence changes are locked');
+          }
+        } else {
+          throw new Error('Evidence not found or unauthorized');
+        }
       }
 
       // Delete file from filesystem
-      const filePath = path.join(__dirname, '../../../uploads/evidence', path.basename(evidence.uri));
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      if (evidence.filename) {
+        const filePath = path.join(__dirname, '../../../uploads/evidence', evidence.filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
       }
 
       // Delete from database

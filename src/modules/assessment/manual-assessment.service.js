@@ -163,6 +163,7 @@ class ManualAssessmentService {
               kode: hierarchicalKode,  // Use hierarchical code to ensure uniqueness
               nama: factor.nama || null,
               deskripsi: factor.deskripsi || null,
+              score: factor.score || 0,  // Renamed from weight
               max_score: factor.max_score || 1,
               sort: factor.sort || 0,
               is_active: true,
@@ -381,20 +382,50 @@ class ManualAssessmentService {
                     responseMap[response.factor_id] = response;
                   });
 
-                  // Map factors with PIC assignments and existing responses
+                  // Get evidence for these factors
+                  const evidenceList = factorIds.length > 0
+                    ? await this.repository.db('evidence')
+                        .select('evidence.*')
+                        .whereIn('evidence.target_id', factorIds)
+                        .where('evidence.target_type', 'kka')  // factors are stored as 'kka' type
+                        .where('evidence.assessment_id', assessmentId)
+                        .orderBy('evidence.created_at', 'desc')
+                    : [];
+
+                  // Create a map of factor_id -> evidence array
+                  const evidenceMap = {};
+                  evidenceList.forEach(ev => {
+                    if (!evidenceMap[ev.target_id]) {
+                      evidenceMap[ev.target_id] = [];
+                    }
+                    evidenceMap[ev.target_id].push({
+                      id: ev.id,
+                      file_name: ev.original_filename || ev.filename,
+                      file_path: ev.file_path,
+                      file_type: ev.mime_type,
+                      file_size: ev.file_size,
+                      description: ev.note,
+                      uploaded_at: ev.created_at
+                    });
+                  });
+
+                  // Map factors with PIC assignments, existing responses, and evidence
                   const mappedFactors = factors.map(f => {
                     const picAssignment = picAssignments.find(pic => pic.target_id === f.id);
                     const existingResponse = responseMap[f.id];
+                    const factorEvidence = evidenceMap[f.id] || [];
                     return {
                       id: f.id,
                       parameter_id: f.parameter_id,
                       kode: f.kode,
                       nama: f.nama,
                       deskripsi: f.deskripsi,
+                      score: f.score || 0,  // Renamed from weight to score
                       max_score: f.max_score,
                       sort: f.sort,
-                      score: existingResponse?.score || 0,
+                      response_score: existingResponse?.score || 0,
                       comment: existingResponse?.comment || '',
+                      evidence: factorEvidence,  // Add evidence array
                       pic_unit_bidang: picAssignment ? {
                         id: picAssignment.unit_bidang_id,
                         kode: picAssignment.unit_kode,

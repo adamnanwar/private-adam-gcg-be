@@ -29,6 +29,7 @@ const unitBidangRoutes = require('./modules/unit-bidang/unit-bidang.routes');
 const aoiRoutes = require('./modules/aoi/aoi.routes');
 const dashboardRoutes = require('./modules/dashboard/routes');
 const sk16Routes = require('./modules/master-data/sk16.routes');
+const settingsRoutes = require('./modules/settings/routes');
 
 // Load environment variables
 dotenv.config();
@@ -100,6 +101,7 @@ app.use('/api/factors', createFactorEnhancedRoutes(db));
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/email', require('./modules/email/email.routes'));
 app.use('/api/master-data/sk16', sk16Routes);
+app.use('/api/settings', settingsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

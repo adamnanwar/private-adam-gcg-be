@@ -12,6 +12,7 @@ router.use(authenticateToken);
 const uploadMiddleware = evidenceService.upload.single('file');
 
 // Evidence upload routes (with multer middleware)
+router.post('/upload', uploadMiddleware, evidenceController.uploadEvidenceGeneric);
 router.post('/assignment/:assignmentId/upload', uploadMiddleware, evidenceController.uploadEvidence);
 router.get('/assignment/:assignmentId', evidenceController.getEvidenceByAssignment);
 router.delete('/:evidenceId', evidenceController.deleteEvidence);

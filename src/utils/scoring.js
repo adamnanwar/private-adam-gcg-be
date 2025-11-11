@@ -17,44 +17,44 @@ function convertToFUK(averageScore) {
 
 /**
  * Calculate weighted average score for a collection of items
- * @param {Array} items - Array of items with score and weight properties
+ * @param {Array} items - Array of items with score and score properties
  * @returns {number} Weighted average score
  */
 function calculateWeightedAverage(items) {
   if (!items || items.length === 0) return 0;
-  
-  const totalWeight = items.reduce((sum, item) => sum + (item.weight || 1), 0);
-  if (totalWeight === 0) return 0;
-  
+
+  const totalScore = items.reduce((sum, item) => sum + (item.score || 1), 0);
+  if (totalScore === 0) return 0;
+
   const weightedSum = items.reduce((sum, item) => {
-    const weight = item.weight || 1;
-    const score = item.score || 0;
-    return sum + (weight * score);
+    const score = item.score || 1;
+    const value = item.value || 0;
+    return sum + (score * value);
   }, 0);
-  
-  return weightedSum / totalWeight;
+
+  return weightedSum / totalScore;
 }
 
 /**
  * Calculate parameter score from factors
  * @param {Array} factors - Array of factors with scores
- * @param {number} parameterWeight - Weight of the parameter
+ * @param {number} parameterScore - Score of the parameter
  * @returns {Object} Parameter score and FUK
  */
-function calculateParameterScore(factors, parameterWeight = 1) {
+function calculateParameterScore(factors, parameterScore = 1) {
   if (!factors || factors.length === 0) {
     return { score: 0, fuk: 0 };
   }
-  
+
   // Calculate average score from factors
   const avgScore = factors.reduce((sum, factor) => sum + (factor.score || 0), 0) / factors.length;
-  
+
   // Convert to FUK
   const fuk = convertToFUK(avgScore);
-  
-  // Apply weight
-  const weightedScore = parameterWeight * fuk;
-  
+
+  // Apply score
+  const weightedScore = parameterScore * fuk;
+
   return {
     score: avgScore,
     fuk: fuk,
@@ -64,23 +64,23 @@ function calculateParameterScore(factors, parameterWeight = 1) {
 
 /**
  * Calculate aspect score from parameters
- * @param {Array} parameters - Array of parameters with scores and weights
+ * @param {Array} parameters - Array of parameters with scores and scores
  * @returns {Object} Aspect score and FUK
  */
 function calculateAspectScore(parameters) {
   if (!parameters || parameters.length === 0) {
     return { score: 0, fuk: 0, weightedScore: 0 };
   }
-  
+
   // Calculate weighted average of parameter scores
   const weightedScore = calculateWeightedAverage(parameters.map(param => ({
-    score: param.weightedScore || param.score || 0,
-    weight: param.weight || 1
+    score: param.score || 1,
+    value: param.weightedScore || param.score || 0
   })));
-  
+
   // Calculate average FUK
   const avgFUK = parameters.reduce((sum, param) => sum + (param.fuk || 0), 0) / parameters.length;
-  
+
   return {
     score: weightedScore,
     fuk: avgFUK,
@@ -90,23 +90,23 @@ function calculateAspectScore(parameters) {
 
 /**
  * Calculate KKA score from aspects
- * @param {Array} aspects - Array of aspects with scores and weights
+ * @param {Array} aspects - Array of aspects with scores and scores
  * @returns {Object} KKA score and FUK
  */
 function calculateKKAScore(aspects) {
   if (!aspects || aspects.length === 0) {
     return { score: 0, fuk: 0, weightedScore: 0 };
   }
-  
+
   // Calculate weighted average of aspect scores
   const weightedScore = calculateWeightedAverage(aspects.map(aspect => ({
-    score: aspect.weightedScore || aspect.score || 0,
-    weight: aspect.weight || 1
+    score: aspect.score || 1,
+    value: aspect.weightedScore || aspect.score || 0
   })));
-  
+
   // Calculate average FUK
   const avgFUK = aspects.reduce((sum, aspect) => sum + (aspect.fuk || 0), 0) / aspects.length;
-  
+
   return {
     score: weightedScore,
     fuk: avgFUK,
@@ -116,23 +116,23 @@ function calculateKKAScore(aspects) {
 
 /**
  * Calculate overall assessment score
- * @param {Array} kkas - Array of KKAs with scores and weights
+ * @param {Array} kkas - Array of KKAs with scores and scores
  * @returns {Object} Overall assessment score and FUK
  */
 function calculateOverallScore(kkas) {
   if (!kkas || kkas.length === 0) {
     return { score: 0, fuk: 0, weightedScore: 0 };
   }
-  
+
   // Calculate weighted average of KKA scores
   const weightedScore = calculateWeightedAverage(kkas.map(kka => ({
-    score: kka.weightedScore || kka.score || 0,
-    weight: kka.weight || 1
+    score: kka.score || 1,
+    value: kka.weightedScore || kka.score || 0
   })));
-  
+
   // Calculate average FUK
   const avgFUK = kkas.reduce((sum, kka) => sum + (kka.fuk || 0), 0) / kkas.length;
-  
+
   return {
     score: weightedScore,
     fuk: avgFUK,
@@ -167,38 +167,38 @@ function processAssessmentResponses(responses, dictionary) {
       kka_id: kka.id,
       kka_kode: kka.kode,
       kka_nama: kka.nama,
-      kka_weight: kka.weight || 1,
+      kka_score: kka.score || 1,
       aspects: []
     };
-    
+
     // Process aspects
     kkaResult.aspects = kka.aspects.map(aspect => {
       const aspectResult = {
         aspect_id: aspect.id,
         aspect_kode: aspect.kode,
         aspect_nama: aspect.nama,
-        aspect_weight: aspect.weight || 1,
+        aspect_score: aspect.score || 1,
         parameters: []
       };
-      
+
       // Process parameters
       aspectResult.parameters = aspect.parameters.map(parameter => {
         const parameterResult = {
           parameter_id: parameter.id,
           parameter_kode: parameter.kode,
           parameter_nama: parameter.nama,
-          parameter_weight: parameter.weight || 1,
+          parameter_score: parameter.score || 1,
           factors: []
         };
-        
+
         // Process factors
         parameterResult.factors = parameter.factors.map(factor => {
           const score = responseMap.get(factor.id) || 0;
           const fuk = convertToFUK(score);
-          
+
           results.total_factors++;
           if (score > 0) results.completed_factors++;
-          
+
           return {
             factor_id: factor.id,
             factor_kode: factor.kode,
@@ -207,34 +207,34 @@ function processAssessmentResponses(responses, dictionary) {
             factor_fuk: fuk
           };
         });
-        
+
         // Calculate parameter score
         const paramScore = calculateParameterScore(
-          parameterResult.factors, 
-          parameterResult.parameter_weight
+          parameterResult.factors,
+          parameterResult.parameter_score
         );
         parameterResult.parameter_score = paramScore.score;
         parameterResult.parameter_fuk = paramScore.fuk;
         parameterResult.weightedScore = paramScore.weightedScore;
-        
+
         return parameterResult;
       });
-      
+
       // Calculate aspect score
       const aspectScore = calculateAspectScore(aspectResult.parameters);
       aspectResult.aspect_score = aspectScore.score;
       aspectResult.aspect_fuk = aspectScore.fuk;
       aspectResult.weightedScore = aspectScore.weightedScore;
-      
+
       return aspectResult;
     });
-    
+
     // Calculate KKA score
     const kkaScore = calculateKKAScore(kkaResult.aspects);
     kkaResult.kka_score = kkaScore.score;
     kkaResult.kka_fuk = kkaScore.fuk;
     kkaResult.weightedScore = kkaScore.weightedScore;
-    
+
     return kkaResult;
   });
   

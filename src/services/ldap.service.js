@@ -521,19 +521,20 @@ class LDAPService {
       };
 
       if (existingUser) {
-        // Check if update is needed (including role changes based on unit)
+        // IMPORTANT: For existing users, preserve their role (Bug #15 fix)
+        // Only update name, email, and unit - DO NOT change role
         const needsUpdate =
           existingUser.name !== (name || username) ||
           existingUser.unit_bidang_id !== (unit ? unit.id : null) ||
-          existingUser.role !== (isAdmin ? 'admin' : 'user') ||
           !existingUser.is_active;
 
         if (needsUpdate) {
-          // Update data INCLUDING role (auto-update role based on unit)
+          // Update data WITHOUT changing role (preserve existing role)
           const updateData = {
             name: name || username,
+            email: email, // Update email if changed
             unit_bidang_id: unit ? unit.id : null,
-            role: isAdmin ? 'admin' : 'user', // Update role based on unit
+            // role: PRESERVE EXISTING - DO NOT UPDATE
             is_active: true,
             updated_at: new Date()
           };
@@ -542,15 +543,10 @@ class LDAPService {
             .where('id', existingUser.id)
             .update(updateData);
 
-          const roleChanged = existingUser.role !== updateData.role;
-          if (roleChanged) {
-            logger.info(`✨ Role updated for ${username}: ${existingUser.role} → ${updateData.role} (unit: ${unit ? unit.nama : 'none'})`);
-          }
+          logger.info(`Updated existing LDAP user: ${username} → Unit: ${unit ? unit.nama : 'none'}, Role: ${existingUser.role} (PRESERVED)`);
 
-          logger.info(`Updated existing LDAP user: ${username} → Unit: ${unit ? unit.nama : 'none'}, Role: ${updateData.role}`);
-
-          // Return updated user
-          return { ...existingUser, ...updateData };
+          // Return updated user with PRESERVED role
+          return { ...existingUser, ...updateData, role: existingUser.role };
         } else {
           // No update needed, just return existing user
           logger.debug(`LDAP user ${username} login - no changes detected (role: ${existingUser.role}, unit: ${unit ? unit.nama : 'none'})`);

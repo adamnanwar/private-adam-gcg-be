@@ -10,7 +10,54 @@ const uploadEvidenceSchema = Joi.object({
   note: Joi.string().optional().max(500)
 });
 
+const uploadEvidenceGenericSchema = Joi.object({
+  target_type: Joi.string().valid('factor', 'parameter', 'aoi').required(),
+  target_id: Joi.string().uuid().required(),
+  assessment_id: Joi.string().uuid().required(),  // REQUIRED for linking evidence
+  note: Joi.string().optional().max(500).allow('')
+});
+
 class EvidenceController {
+  /**
+   * Upload evidence for factor/parameter/aoi (generic)
+   */
+  async uploadEvidenceGeneric(req, res) {
+    try {
+      const { error, value } = uploadEvidenceGenericSchema.validate(req.body);
+
+      if (error) {
+        return res.status(400).json(validationErrorResponse('Validation error', error.details));
+      }
+
+      if (!req.file) {
+        return res.status(400).json(errorResponse('No file uploaded', 'VALIDATION_ERROR'));
+      }
+
+      const userId = req.user.id;
+      const result = await evidenceService.uploadEvidenceGeneric(
+        value.target_type,
+        value.target_id,
+        req.file,
+        value.note || '',
+        userId,
+        value.assessment_id  // Pass assessment_id
+      );
+
+      res.json(successResponse(result, 'Evidence uploaded successfully'));
+    } catch (error) {
+      logger.error('Error in uploadEvidenceGeneric controller:', error);
+      if (error.message.includes('not found')) {
+        res.status(404).json(errorResponse(error.message, 'NOT_FOUND'));
+      } else if (error.message.includes('Only images, PDFs, and Office documents are allowed')) {
+        res.status(400).json(errorResponse('Invalid file type. Only images, PDFs, and Office documents are allowed', 'VALIDATION_ERROR'));
+      } else if (error.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json(errorResponse('File too large. Maximum size is 10MB', 'VALIDATION_ERROR'));
+      } else {
+        res.status(500).json(errorResponse('Failed to upload evidence', 'INTERNAL_ERROR'));
+      }
+    }
+  }
+
   /**
    * Upload evidence for an assignment
    */

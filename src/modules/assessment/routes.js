@@ -24,6 +24,10 @@ router.delete('/:id', requireRole(['admin']), assessmentController.deleteAssessm
 // Assessment Status Routes (Admin only - for manual override if needed)
 router.patch('/:id/status', requireRole(['admin']), assessmentController.updateAssessmentStatus.bind(assessmentController));
 
+// Tindak Lanjut & Verifikasi Routes
+router.post('/:id/submit', requireRole(['user', 'admin']), assessmentController.submitTindakLanjut.bind(assessmentController));
+router.post('/:id/verify', requireRole(['assessor', 'admin']), assessmentController.verifyAssessment.bind(assessmentController));
+
 // Assessment Review Routes
 router.post('/:assessmentId/review/accept', requireAssessmentOwnerOrAdmin, assessmentController.acceptAssessment.bind(assessmentController));
 router.post('/:assessmentId/review/reject', requireAssessmentOwnerOrAdmin, assessmentController.rejectAssessment.bind(assessmentController));
