@@ -802,6 +802,12 @@ class AssessmentController {
         return res.status(400).json(errorResponse('Assessment is not ready for verification', 'INVALID_STATUS'));
       }
 
+      // Check if user is the assessor (creator) of this assessment
+      // Only the assessor can verify/approve their own assessment
+      if (assessment.assessor_id !== userId && req.user.role !== 'admin') {
+        return res.status(403).json(errorResponse('Only the assessor who created this assessment can verify it', 'FORBIDDEN'));
+      }
+
       if (action === 'reject') {
         // Reject: change status to in_progress (not 'revisi' as it's not in allowed values)
         await db('assessment')

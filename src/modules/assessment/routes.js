@@ -26,7 +26,7 @@ router.patch('/:id/status', requireRole(['admin']), assessmentController.updateA
 
 // Tindak Lanjut & Verifikasi Routes
 router.post('/:id/submit', requireRole(['user', 'admin']), assessmentController.submitTindakLanjut.bind(assessmentController));
-router.post('/:id/verify', requireRole(['assessor', 'admin']), assessmentController.verifyAssessment.bind(assessmentController));
+router.post('/:id/verify', requireRole(['user', 'admin']), assessmentController.verifyAssessment.bind(assessmentController));
 
 // Assessment Review Routes
 router.post('/:assessmentId/review/accept', requireAssessmentOwnerOrAdmin, assessmentController.acceptAssessment.bind(assessmentController));
