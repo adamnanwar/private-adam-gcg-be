@@ -689,13 +689,83 @@ class AssessmentController {
       const { assessmentId } = req.params;
       const payload = req.body;
       const userId = req.user.id;
+      const db = getConnection();
 
       const result = await manualAssessmentService.updateManualAssessment(assessmentId, payload, userId);
+
+      // Calculate overall score from factor.score values (for manual assessments)
+      const factors = await db('factor')
+        .where('assessment_id', assessmentId)
+        .select('score', 'max_score');
+
+      let overallScore = 0;
+      if (factors.length > 0) {
+        const totalScore = factors.reduce((sum, f) => sum + parseFloat(f.score || 0), 0);
+        const totalMaxScore = factors.reduce((sum, f) => sum + parseFloat(f.max_score || 1), 0);
+        overallScore = totalMaxScore > 0 ? totalScore / totalMaxScore : 0;
+      }
+
+      logger.info(`Manual assessment ${assessmentId} updated with overall score: ${overallScore.toFixed(3)}`);
+
+      // Check AOI minimum score threshold
+      const aoiSetting = await db('settings')
+        .where('key', 'aoi_minimum_score')
+        .first();
+
+      const minimumScore = aoiSetting ? parseFloat(aoiSetting.value) : 0.75;
+
+      // Auto-create or update AOI if overall score < minimum
+      if (overallScore < minimumScore) {
+        logger.info(`Overall score ${overallScore.toFixed(3)} is below minimum ${minimumScore.toFixed(3)}, checking AOI...`);
+
+        // Check if AOI already exists for this assessment
+        const existingAoi = await db('aoi')
+          .where('assessment_id', assessmentId)
+          .first();
+
+        if (existingAoi) {
+          // Update existing AOI
+          await db('aoi')
+            .where('id', existingAoi.id)
+            .update({
+              recommendation: `Assessment score (${(overallScore * 100).toFixed(0)}%) is below threshold (${(minimumScore * 100).toFixed(0)}%). Requires improvement action.`,
+              priority: overallScore < 0.5 ? 'high' : 'medium',
+              updated_at: new Date()
+            });
+          logger.info(`AOI ${existingAoi.id} updated for assessment ${assessmentId}`);
+        } else {
+          // Create new AOI
+          const assessment = await db('assessment').where('id', assessmentId).first();
+          const aoiId = randomUUID();
+          await db('aoi').insert({
+            id: aoiId,
+            assessment_id: assessmentId,
+            nama: `AOI - ${assessment.title}`,
+            recommendation: `Assessment score (${(overallScore * 100).toFixed(0)}%) is below threshold (${(minimumScore * 100).toFixed(0)}%). Requires improvement action.`,
+            status: 'open',
+            priority: overallScore < 0.5 ? 'high' : 'medium',
+            created_by: userId,
+            created_at: new Date(),
+            updated_at: new Date()
+          });
+          logger.info(`AOI ${aoiId} created automatically for assessment ${assessmentId}`);
+        }
+
+        // Return with AOI info
+        return res.json(successResponse({
+          assessment: { id: assessmentId },
+          idMapping: result.hierarchy || { kkas: [], aspects: [], parameters: [], factors: [] },
+          overallScore: parseFloat(overallScore.toFixed(3)),
+          aoiCreated: true
+        }, 'Assessment updated successfully. AOI created/updated due to low score.'));
+      }
 
       // Return with same format as create for consistency
       res.json(successResponse({
         assessment: { id: assessmentId },
-        idMapping: result.hierarchy || { kkas: [], aspects: [], parameters: [], factors: [] }
+        idMapping: result.hierarchy || { kkas: [], aspects: [], parameters: [], factors: [] },
+        overallScore: parseFloat(overallScore.toFixed(3)),
+        aoiCreated: false
       }, 'Assessment updated successfully'));
     } catch (error) {
       logger.error('Error in updateManualAssessment controller:', error);
@@ -907,7 +977,7 @@ class AssessmentController {
           assessment_id: assessmentId,
           nama: `AOI - ${assessment.title}`,
           recommendation: `Assessment score (${(overallScore * 100).toFixed(0)}%) is below threshold (${(minimumScore * 100).toFixed(0)}%). Requires improvement action.`,
-          status: 'draft',
+          status: 'open',
           priority: overallScore < 0.5 ? 'high' : 'medium',
           created_by: userId,
           created_at: new Date(),
