@@ -22,7 +22,8 @@ class AOIRepository {
       )
       .leftJoin('users', 'aoi.created_by', 'users.id')
       .leftJoin('assessment', 'assessment.id', 'aoi.assessment_id')
-      .leftJoin('users as pic_users', 'aoi.pic_user_id', 'pic_users.id');
+      .leftJoin('users as pic_users', 'aoi.pic_user_id', 'pic_users.id')
+      .whereNull('aoi.deleted_at');  // Exclude soft deleted AOI
 
     if (search) {
       query = query.where(function() {
@@ -53,6 +54,7 @@ class AOIRepository {
       .select(this.db.raw('COUNT(*) as count'))
       .leftJoin('users', 'aoi.created_by', 'users.id')
       .leftJoin('assessment', 'assessment.id', 'aoi.assessment_id')
+      .whereNull('aoi.deleted_at')  // Exclude soft deleted AOI
       .modify(function(queryBuilder) {
         if (search) {
           queryBuilder.where(function() {
@@ -247,6 +249,63 @@ class AOIRepository {
       updated_at: this.db.fn.now()
     });
     return await this.findAOIById(id);
+  }
+
+  async softDeleteAOI(id, userId) {
+    await this.db('aoi').where('id', id).update({
+      deleted_at: this.db.fn.now(),
+      deleted_by: userId,
+      updated_at: this.db.fn.now()
+    });
+    return { success: true, message: 'AOI soft deleted successfully' };
+  }
+
+  async findDeletedAOI(options = {}) {
+    const { page = 1, limit = 10 } = options;
+    const offset = Math.max(0, (parseInt(page) - 1) * parseInt(limit));
+
+    const deletedAOI = await this.db('aoi')
+      .select(
+        'aoi.id',
+        'aoi.nama',
+        'aoi.deleted_at',
+        'aoi.created_at',
+        'users.name as deleted_by_name'
+      )
+      .leftJoin('users', 'aoi.deleted_by', 'users.id')
+      .whereNotNull('aoi.deleted_at')
+      .orderBy('aoi.deleted_at', 'desc')
+      .limit(parseInt(limit))
+      .offset(offset);
+
+    const totalResult = await this.db('aoi')
+      .whereNotNull('deleted_at')
+      .count('* as count')
+      .first();
+
+    const total = totalResult.count;
+
+    return {
+      data: deletedAOI.map(a => ({
+        ...a,
+        type: 'aoi'
+      })),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: parseInt(total),
+        pages: Math.ceil(total / limit)
+      }
+    };
+  }
+
+  async restoreAOI(id) {
+    await this.db('aoi').where('id', id).update({
+      deleted_at: null,
+      deleted_by: null,
+      updated_at: this.db.fn.now()
+    });
+    return { success: true, message: 'AOI restored successfully' };
   }
 
   async deleteAOI(id) {

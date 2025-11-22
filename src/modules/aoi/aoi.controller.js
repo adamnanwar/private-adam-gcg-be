@@ -17,7 +17,7 @@ class AOIController {
     target_id: Joi.string().uuid().required(),
     recommendation: Joi.string().required().min(1).max(1000),
     due_date: Joi.date().optional().allow(null),
-    status: Joi.string().valid('open', 'in_progress', 'completed', 'overdue').optional()
+    status: Joi.string().valid('open', 'verifikasi', 'completed', 'overdue').optional()
   });
 
   updateAOISchema = Joi.object({
@@ -25,7 +25,7 @@ class AOIController {
     target_id: Joi.string().uuid().optional(),
     recommendation: Joi.string().optional().min(1).max(1000),
     due_date: Joi.date().optional().allow(null),
-    status: Joi.string().valid('open', 'in_progress', 'completed', 'overdue').optional()
+    status: Joi.string().valid('open', 'verifikasi', 'completed', 'overdue').optional()
   });
 
   async getAllAOI(req, res) {

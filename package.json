@@ -48,21 +48,6 @@
     "nodemon": "^3.1.10",
     "supertest": "^6.3.4"
   },
-  "jest": {
-    "testEnvironment": "node",
-    "collectCoverageFrom": [
-      "src/**/*.js",
-      "!src/index.js",
-      "!src/config/**",
-      "!src/database/**"
-    ],
-    "coverageDirectory": "coverage",
-    "coverageReporters": [
-      "text",
-      "lcov",
-      "html"
-    ]
-  },
   "keywords": [
     "gcg",
     "maturity-assessment",

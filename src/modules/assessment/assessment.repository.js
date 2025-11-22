@@ -17,6 +17,7 @@ class AssessmentRepository {
           'users.email as assessor_email'
         )
         .leftJoin('users', 'assessment.assessor_id', 'users.id')
+        .whereNull('assessment.deleted_at')  // Exclude soft deleted assessments
         .orderBy('assessment.created_at', 'desc');
       
       if (search) {
@@ -234,6 +235,80 @@ class AssessmentRepository {
     }
   }
 
+  async softDeleteAssessment(id, userId) {
+    try {
+      await this.db('assessment')
+        .where('id', id)
+        .update({
+          deleted_at: this.db.fn.now(),
+          deleted_by: userId,
+          updated_at: this.db.fn.now()
+        });
+
+      return true;
+    } catch (error) {
+      logger.error('Error soft deleting assessment:', error);
+      throw error;
+    }
+  }
+
+  async findDeletedAssessments(limit = 50, offset = 0) {
+    try {
+      const assessments = await this.db('assessment')
+        .select(
+          'assessment.id',
+          'assessment.title',
+          'assessment.deleted_at',
+          'assessment.created_at',
+          'users.name as deleted_by_name'
+        )
+        .leftJoin('users', 'assessment.deleted_by', 'users.id')
+        .whereNotNull('assessment.deleted_at')
+        .orderBy('assessment.deleted_at', 'desc')
+        .limit(limit)
+        .offset(offset);
+
+      return assessments.map(a => ({
+        ...a,
+        type: 'assessment'
+      }));
+    } catch (error) {
+      logger.error('Error finding deleted assessments:', error);
+      throw error;
+    }
+  }
+
+  async countDeletedAssessments() {
+    try {
+      const result = await this.db('assessment')
+        .whereNotNull('deleted_at')
+        .count('* as count')
+        .first();
+
+      return parseInt(result.count);
+    } catch (error) {
+      logger.error('Error counting deleted assessments:', error);
+      throw error;
+    }
+  }
+
+  async restoreAssessment(id) {
+    try {
+      await this.db('assessment')
+        .where('id', id)
+        .update({
+          deleted_at: null,
+          deleted_by: null,
+          updated_at: this.db.fn.now()
+        });
+
+      return true;
+    } catch (error) {
+      logger.error('Error restoring assessment:', error);
+      throw error;
+    }
+  }
+
   async deleteAssessment(id) {
     try {
       await this.db.transaction(async (trx) => {
@@ -260,7 +335,8 @@ class AssessmentRepository {
   async countAssessments(search = '', status = '', assessorId = '', userUnitId = null) {
     try {
       let query = this.db('assessment')
-        .leftJoin('users', 'assessment.assessor_id', 'users.id');
+        .leftJoin('users', 'assessment.assessor_id', 'users.id')
+        .whereNull('assessment.deleted_at');  // Exclude soft deleted assessments
       
       if (search) {
         query = query.where(function() {
@@ -298,7 +374,7 @@ class AssessmentRepository {
   // Response Methods
   async findResponsesByAssessment(assessmentId) {
     try {
-      const responses = await this.db('response')
+      let responses = await this.db('response')
         .select(
           'response.*',
           'factor.kode as factor_kode',
@@ -325,6 +401,64 @@ class AssessmentRepository {
         .orderBy('aspect.sort', 'asc')
         .orderBy('parameter.sort', 'asc')
         .orderBy('factor.sort', 'asc');
+
+      // If no responses found in response table, get from factor table directly (old approach for backward compatibility)
+      if (responses.length === 0) {
+        const factors = await this.db('factor')
+          .select(
+            'factor.id',
+            'factor.score',
+            'factor.kode as factor_kode',
+            'factor.nama as factor_nama',
+            'factor.max_score',
+            'factor.assessment_id',
+            'parameter.id as parameter_id',
+            'parameter.kode as parameter_kode',
+            'parameter.nama as parameter_nama',
+            'parameter.weight as parameter_weight',
+            'aspect.id as aspect_id',
+            'aspect.kode as aspect_kode',
+            'aspect.nama as aspect_nama',
+            'aspect.weight as aspect_weight',
+            'kka.id as kka_id',
+            'kka.kode as kka_kode',
+            'kka.nama as kka_nama',
+            'kka.weight as kka_weight'
+          )
+          .leftJoin('parameter', 'factor.parameter_id', 'parameter.id')
+          .leftJoin('aspect', 'parameter.aspect_id', 'aspect.id')
+          .leftJoin('kka', 'aspect.kka_id', 'kka.id')
+          .where('factor.assessment_id', assessmentId)
+          .where('factor.is_active', true)
+          .orderBy('kka.sort', 'asc')
+          .orderBy('aspect.sort', 'asc')
+          .orderBy('parameter.sort', 'asc')
+          .orderBy('factor.sort', 'asc');
+
+        // Transform factor data to look like response data
+        responses = factors.map(factor => ({
+          id: factor.id,
+          assessment_id: factor.assessment_id,
+          factor_id: factor.id,
+          score: parseFloat(factor.score) || 0,
+          comment: '',
+          factor_kode: factor.factor_kode,
+          factor_nama: factor.factor_nama,
+          max_score: parseFloat(factor.max_score) || 1,
+          parameter_id: factor.parameter_id,
+          parameter_kode: factor.parameter_kode,
+          parameter_nama: factor.parameter_nama,
+          parameter_weight: parseFloat(factor.parameter_weight) || 1,
+          aspect_id: factor.aspect_id,
+          aspect_kode: factor.aspect_kode,
+          aspect_nama: factor.aspect_nama,
+          aspect_weight: parseFloat(factor.aspect_weight) || 1,
+          kka_id: factor.kka_id,
+          kka_kode: factor.kka_kode,
+          kka_nama: factor.kka_nama,
+          kka_weight: parseFloat(factor.kka_weight) || 1
+        }));
+      }
 
       // Group responses by aspect to add evidence
       const responsesByAspect = {};
@@ -547,7 +681,7 @@ class AssessmentRepository {
             kka_id: response.kka_id,
             kka_kode: response.kka_kode,
             kka_nama: response.kka_nama,
-            kka_weight: response.kka_weight || 1,
+            kka_weight: parseFloat(response.kka_weight) || 1,
             aspects: {}
           };
         }
@@ -557,7 +691,7 @@ class AssessmentRepository {
             aspect_id: response.aspect_id,
             aspect_kode: response.aspect_kode,
             aspect_nama: response.aspect_nama,
-            aspect_weight: response.aspect_weight || 1,
+            aspect_weight: parseFloat(response.aspect_weight) || 1,
             parameters: {}
           };
         }
@@ -567,7 +701,7 @@ class AssessmentRepository {
             parameter_id: response.parameter_id,
             parameter_kode: response.parameter_kode,
             parameter_nama: response.parameter_nama,
-            parameter_weight: response.parameter_weight || 1,
+            parameter_weight: parseFloat(response.parameter_weight) || 1,
             factors: []
           };
         }
@@ -576,9 +710,9 @@ class AssessmentRepository {
           factor_id: response.factor_id,
           factor_kode: response.factor_kode,
           factor_nama: response.factor_nama,
-          max_score: response.max_score || 1,
+          max_score: parseFloat(response.max_score) || 1,
           raw_score: response.score,
-          normalized_score: response.score / (response.max_score || 1),
+          normalized_score: parseFloat(response.score) / (parseFloat(response.max_score) || 1),
           comment: response.comment,
           created_by: response.created_by,
           created_at: response.created_at
@@ -659,18 +793,28 @@ class AssessmentRepository {
         });
 
         totalWeightedScore += kkaWeightedScore;
-        totalWeight += (kka.kka_weight || 1);
+        totalWeight += (parseFloat(kka.kka_weight) || 1);
       });
 
+      // Calculate raw overall score from all factors (not using FUK conversion)
+      let totalRawScore = 0;
+      let totalFactors = 0;
+      
+      responses.forEach(response => {
+        totalRawScore += (parseFloat(response.score) / (parseFloat(response.max_score) || 1));
+        totalFactors++;
+      });
+      
+      const overallRawScore = totalFactors > 0 ? totalRawScore / totalFactors : 0;
       const overallScore = totalWeight > 0 ? totalWeightedScore / totalWeight : 0;
-      const overallFuk = this._calculateFUKScore(overallScore);
+      const overallFuk = this._calculateFUKScore(overallRawScore);
 
       return {
         assessment_id: assessmentId,
         total_factors: responses.length,
         completed_factors: responses.length,
         completion_percentage: 100,
-        overall_score: overallScore,
+        overall_score: overallRawScore,
         overall_fuk: overallFuk,
         kka_scores: kkaScores
       };

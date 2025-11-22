@@ -11,7 +11,7 @@ class AOI {
     this.target_id = data.target_id;
     this.recommendation = data.recommendation;
     this.due_date = data.due_date;
-    this.status = data.status; // 'open', 'in_progress', 'completed', 'overdue'
+    this.status = data.status; // 'open', 'verifikasi', 'completed', 'overdue'
     this.created_by = data.created_by;
     this.created_at = data.created_at;
     this.updated_at = data.updated_at;
@@ -80,7 +80,7 @@ class AOI {
       errors.push('Invalid due date format');
     }
 
-    if (this.status && !['open', 'in_progress', 'completed', 'overdue'].includes(this.status)) {
+    if (this.status && !['open', 'verifikasi', 'completed', 'overdue'].includes(this.status)) {
       errors.push('Invalid status');
     }
 
@@ -96,10 +96,10 @@ class AOI {
 
   canTransitionTo(newStatus) {
     const validTransitions = {
-      'open': ['in_progress', 'completed'],
-      'in_progress': ['completed', 'overdue'],
+      'open': ['verifikasi', 'completed'],
+      'verifikasi': ['completed', 'overdue'],
       'completed': [],
-      'overdue': ['in_progress', 'completed']
+      'overdue': ['verifikasi', 'completed']
     };
 
     return validTransitions[this.status]?.includes(newStatus) || false;
@@ -109,7 +109,7 @@ class AOI {
 // AOI Status Enum
 const AOI_STATUS = {
   OPEN: 'open',
-  IN_PROGRESS: 'in_progress',
+  VERIFIKASI: 'verifikasi',
   COMPLETED: 'completed',
   OVERDUE: 'overdue'
 };

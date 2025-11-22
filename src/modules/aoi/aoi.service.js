@@ -166,9 +166,42 @@ class AOIService {
         }
       }
 
-      return await this.repository.deleteAOI(id);
+      // Soft delete - update deleted_at and deleted_by
+      return await this.repository.softDeleteAOI(id, user.id);
     } catch (error) {
       throw new Error(`Failed to delete AOI: ${error.message}`);
+    }
+  }
+
+  async getDeletedAOI(options = {}) {
+    try {
+      return await this.repository.findDeletedAOI(options);
+    } catch (error) {
+      throw new Error(`Failed to get deleted AOIs: ${error.message}`);
+    }
+  }
+
+  async restoreAOI(id, user) {
+    try {
+      if (user.role !== 'admin') {
+        throw new Error('Only admins can restore deleted AOI');
+      }
+
+      return await this.repository.restoreAOI(id);
+    } catch (error) {
+      throw new Error(`Failed to restore AOI: ${error.message}`);
+    }
+  }
+
+  async permanentlyDeleteAOI(id, user) {
+    try {
+      if (user.role !== 'admin') {
+        throw new Error('Only admins can permanently delete AOI');
+      }
+
+      return await this.repository.deleteAOI(id);
+    } catch (error) {
+      throw new Error(`Failed to permanently delete AOI: ${error.message}`);
     }
   }
 

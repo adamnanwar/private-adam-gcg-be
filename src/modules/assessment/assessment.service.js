@@ -123,11 +123,67 @@ class AssessmentService {
         throw new Error('You can only delete your own assessments');
       }
 
-      await this.repository.deleteAssessment(id);
-      logger.info(`Assessment deleted: ${id} by user: ${userId}`);
+      // Soft delete - update deleted_at and deleted_by
+      await this.repository.softDeleteAssessment(id, userId);
+      logger.info(`Assessment soft deleted: ${id} by user: ${userId}`);
       return { success: true, message: 'Assessment deleted successfully' };
     } catch (error) {
       logger.error('Error in deleteAssessment service:', error);
+      throw error;
+    }
+  }
+
+  async getDeletedAssessments(page = 1, limit = 50) {
+    try {
+      const offset = (page - 1) * limit;
+      const [assessments, total] = await Promise.all([
+        this.repository.findDeletedAssessments(limit, offset),
+        this.repository.countDeletedAssessments()
+      ]);
+
+      return {
+        data: assessments,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit)
+        }
+      };
+    } catch (error) {
+      logger.error('Error in getDeletedAssessments service:', error);
+      throw error;
+    }
+  }
+
+  async restoreAssessment(id, userId) {
+    try {
+      const isAdmin = await this._hasAdminRole(userId);
+      if (!isAdmin) {
+        throw new Error('Only admins can restore deleted assessments');
+      }
+
+      await this.repository.restoreAssessment(id);
+      logger.info(`Assessment restored: ${id} by user: ${userId}`);
+      return { success: true, message: 'Assessment restored successfully' };
+    } catch (error) {
+      logger.error('Error in restoreAssessment service:', error);
+      throw error;
+    }
+  }
+
+  async permanentlyDeleteAssessment(id, userId) {
+    try {
+      const isAdmin = await this._hasAdminRole(userId);
+      if (!isAdmin) {
+        throw new Error('Only admins can permanently delete assessments');
+      }
+
+      await this.repository.deleteAssessment(id);
+      logger.info(`Assessment permanently deleted: ${id} by user: ${userId}`);
+      return { success: true, message: 'Assessment permanently deleted' };
+    } catch (error) {
+      logger.error('Error in permanentlyDeleteAssessment service:', error);
       throw error;
     }
   }
@@ -183,7 +239,7 @@ class AssessmentService {
 
       // Validate score
       if (responseData.score < 0 || responseData.score > factor.max_score) {
-        throw new Error(`Score must be between 0 and ${factor.max_score}`);
+        throw new Error(`Score must be from 0 up to ${factor.max_score}`);
       }
 
       // Check if response already exists
@@ -229,7 +285,7 @@ class AssessmentService {
       if (responseData.score !== undefined) {
         const factor = await this.dictionaryRepository.findFactorById(existingResponse.factor_id);
         if (factor && (responseData.score < 0 || responseData.score > factor.max_score)) {
-          throw new Error(`Score must be between 0 and ${factor.max_score}`);
+          throw new Error(`Score must be from 0 up to ${factor.max_score}`);
         }
       }
 
@@ -323,7 +379,7 @@ class AssessmentService {
         }
 
         if (response.score < 0 || response.score > factor.max_score) {
-          throw new Error(`Score for factor ${response.factor_id} must be between 0 and ${factor.max_score}`);
+          throw new Error(`Score for factor ${response.factor_id} must be from 0 up to ${factor.max_score}`);
         }
       }
 

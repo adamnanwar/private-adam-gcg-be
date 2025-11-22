@@ -87,6 +87,13 @@ const manualAssessmentSchema = Joi.object({
           kode: Joi.string().allow('', null).optional(),
           nama: Joi.string().allow('', null).optional(),
           deskripsi: Joi.string().allow('', null).optional(),
+          score: Joi.number().optional().min(0).custom((value, helpers) => {
+            const max_score = helpers.state.ancestors[0].max_score || 1;
+            if (value > max_score) {
+              return helpers.error('any.invalid', { message: `Score must be from 0 up to ${max_score}` });
+            }
+            return value;
+          }),
           max_score: Joi.number().optional(),
           sort: Joi.number().optional(),
           comment: Joi.string().allow('', null).optional()

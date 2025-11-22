@@ -1,0 +1,102 @@
+/**
+ * Import PUGKI Template from Excel
+ *
+ * This script reads the PUGKI.xlsx file and imports the template data
+ * into the pugki_template table.
+ */
+
+const XLSX = require('xlsx');
+const { Pool } = require('pg');
+const path = require('path');
+
+// Database connection
+const pool = new Pool({
+  host: process.env.DB_HOST || '10.28.0.113',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'gcg',
+  user: process.env.DB_USER || 'gcg',
+  password: process.env.DB_PASSWORD || 'P@ssw0rdBrightGCG',
+});
+
+async function importPugkiTemplate() {
+  const client = await pool.connect();
+
+  try {
+    console.log('📖 Reading PUGKI.xlsx file...');
+
+    // Read Excel file
+    const workbook = XLSX.readFile(path.join(__dirname, '../../PUGKI.xlsx'));
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const data = XLSX.utils.sheet_to_json(worksheet);
+
+    console.log(`Found ${data.length} rows in Excel file`);
+
+    // Start transaction
+    await client.query('BEGIN');
+
+    // Clear existing templates
+    console.log('🗑️  Clearing existing PUGKI templates...');
+    await client.query('DELETE FROM pugki_template');
+
+    console.log('💾 Inserting PUGKI templates...');
+    let insertedCount = 0;
+
+    for (const row of data) {
+      // Map Excel columns to database columns
+      // Adjust these field names based on your Excel structure
+      const kode = row['Kode'] || row['kode'] || row['KODE'];
+      const parentKode = row['Parent Kode'] || row['parent_kode'] || row['PARENT_KODE'] || null;
+      const level = parseInt(row['Level'] || row['level'] || row['LEVEL'] || 1);
+      const nama = row['Nama'] || row['nama'] || row['NAMA'];
+      const jumlahRekomendasi = parseInt(row['Jumlah Rekomendasi'] || row['jumlah_rekomendasi'] || 0) || null;
+
+      if (!kode || !nama) {
+        console.warn(`⚠️  Skipping row with missing kode or nama:`, row);
+        continue;
+      }
+
+      await client.query(`
+        INSERT INTO pugki_template (kode, parent_kode, level, nama, jumlah_rekomendasi, is_active)
+        VALUES ($1, $2, $3, $4, $5, true)
+        ON CONFLICT (kode) DO UPDATE
+        SET parent_kode = EXCLUDED.parent_kode,
+            level = EXCLUDED.level,
+            nama = EXCLUDED.nama,
+            jumlah_rekomendasi = EXCLUDED.jumlah_rekomendasi,
+            is_active = true,
+            updated_at = now()
+      `, [kode, parentKode, level, nama, jumlahRekomendasi]);
+
+      insertedCount++;
+    }
+
+    // Commit transaction
+    await client.query('COMMIT');
+
+    console.log(`✅ Successfully imported ${insertedCount} PUGKI templates!`);
+
+    // Verify import
+    const result = await client.query('SELECT COUNT(*) as count FROM pugki_template WHERE is_active = true');
+    console.log(`📊 Total active templates in database: ${result.rows[0].count}`);
+
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('❌ Error importing PUGKI templates:', error);
+    throw error;
+  } finally {
+    client.release();
+    await pool.end();
+  }
+}
+
+// Run import
+importPugkiTemplate()
+  .then(() => {
+    console.log('✨ Import completed!');
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error('💥 Import failed:', error);
+    process.exit(1);
+  });
