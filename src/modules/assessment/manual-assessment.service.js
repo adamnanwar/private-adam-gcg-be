@@ -20,15 +20,32 @@ class ManualAssessmentService {
   async createManualAssessment(assessmentData, kkaData, userId) {
     console.log('createManualAssessment called with:', { assessmentData, kkaData, userId });
     const trx = await this.repository.db.transaction();
-    
+
     try {
       const assessmentId = uuidv4();
+
+      // Check if any PICs are assigned in the hierarchy
+      const hasPICAssignments = (kkaData || []).some(kka =>
+        (kka.aspects || []).some(aspect =>
+          (aspect.parameters || []).some(parameter =>
+            (parameter.factors || []).some(factor =>
+              factor.pic_unit_bidang_id || factor.pic_user_id
+            )
+          )
+        )
+      );
+
+      // If PICs are assigned during creation, set status to in_progress
+      const initialStatus = hasPICAssignments
+        ? ASSESSMENT_STATUS.IN_PROGRESS
+        : (assessmentData.status || ASSESSMENT_STATUS.DRAFT);
+
       const assessment = {
         id: assessmentId,
         title: assessmentData.title || assessmentData.organization_name, // Accept both for compatibility
         assessment_date: assessmentData.assessment_date,
         assessor_id: assessmentData.assessor_id || userId,
-        status: assessmentData.status || ASSESSMENT_STATUS.DRAFT,
+        status: initialStatus,
         notes: assessmentData.notes || '',
         created_at: new Date(),
         updated_at: new Date()
