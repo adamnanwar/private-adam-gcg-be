@@ -60,7 +60,9 @@ class PugkiRepository {
       .select(
         'pa.*',
         'u.name as created_by_name'
-      );
+      )
+      .whereNull('pa.deleted_at')
+      .where('pa.is_master_data', false); // Only show actual assessments, not master data
 
     if (filters.status) {
       query = query.where('pa.status', filters.status);
@@ -78,17 +80,37 @@ class PugkiRepository {
     return assessments.map(a => PugkiAssessment.fromDatabase(a));
   }
 
+  async getAllMasterData(filters = {}) {
+    let query = this.db('pugki_assessment as pa')
+      .leftJoin('users as u', 'pa.created_by', 'u.id')
+      .select(
+        'pa.*',
+        'u.name as created_by_name'
+      )
+      .whereNull('pa.deleted_at')
+      .where('pa.is_master_data', true); // Only show master data
+
+    if (filters.search) {
+      query = query.where('pa.title', 'ilike', `%${filters.search}%`);
+    }
+
+    const assessments = await query.orderBy('pa.created_at', 'desc');
+    return assessments.map(a => PugkiAssessment.fromDatabase(a));
+  }
+
   async getAssessmentById(id) {
     const assessment = await this.db('pugki_assessment as pa')
       .leftJoin('users as u', 'pa.created_by', 'u.id')
       .select('pa.*', 'u.name as created_by_name')
       .where('pa.id', id)
+      .whereNull('pa.deleted_at')
       .first();
     return PugkiAssessment.fromDatabase(assessment);
   }
 
   async createAssessment(data) {
-    const [id] = await this.db('pugki_assessment').insert(data).returning('id');
+    const [result] = await this.db('pugki_assessment').insert(data).returning('id');
+    const id = typeof result === 'object' ? result.id : result;
     return this.getAssessmentById(id);
   }
 
@@ -99,8 +121,13 @@ class PugkiRepository {
     return this.getAssessmentById(id);
   }
 
-  async deleteAssessment(id) {
-    await this.db('pugki_assessment').where('id', id).del();
+  async deleteAssessment(id, userId) {
+    await this.db('pugki_assessment')
+      .where('id', id)
+      .update({
+        deleted_at: this.db.fn.now(),
+        deleted_by: userId
+      });
   }
 
   // ========== RESPONSE METHODS ==========

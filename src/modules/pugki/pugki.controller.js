@@ -48,6 +48,19 @@ class PugkiController {
     }
   }
 
+  async getMasterData(req, res) {
+    try {
+      const { search } = req.query;
+      const masterData = await this.service.getAllMasterData({
+        search
+      });
+      res.json({ success: true, data: masterData });
+    } catch (error) {
+      console.error('Error getting master data:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
   async getAssessmentById(req, res) {
     try {
       const { id } = req.params;
@@ -70,16 +83,22 @@ class PugkiController {
         assessment_year: Joi.number().integer().required(),
         status: Joi.string().valid('draft', 'in_progress', 'completed').default('draft'),
         notes: Joi.string().allow('').optional(),
+        is_master_data: Joi.boolean().optional().default(false),
         prinsip: Joi.array().items(Joi.object({
           id: Joi.string().optional(),
           kode: Joi.string().allow('', null).optional(),
           nama: Joi.string().allow('', null).optional(),
+          sort: Joi.number().optional(),
           rekomendasi: Joi.array().items(Joi.object({
             id: Joi.string().optional(),
             kode: Joi.string().allow('', null).optional(),
             nama: Joi.string().allow('', null).optional(),
             comply: Joi.string().allow('', null).optional(),
-            comment: Joi.string().allow('', null).optional()
+            comply_explain: Joi.string().valid('Comply', 'Explain').allow('', null).optional(),
+            referensi: Joi.string().allow('', null).optional(),
+            score: Joi.number().allow(null).optional(),
+            comment: Joi.string().allow('', null).optional(),
+            sort: Joi.number().optional()
           })).optional()
         })).optional()
       });
@@ -89,6 +108,7 @@ class PugkiController {
         return res.status(400).json({ success: false, error: error.details[0].message });
       }
 
+      // Pass entire data including prinsip to service
       const assessment = await this.service.createAssessment(value, req.user.id);
       res.status(201).json({ success: true, data: assessment });
     } catch (error) {
@@ -100,7 +120,9 @@ class PugkiController {
   async updateAssessment(req, res) {
     try {
       const { id } = req.params;
-      const assessment = await this.service.updateAssessment(id, req.body);
+
+      // Pass entire data including prinsip to service
+      const assessment = await this.service.updateAssessment(id, req.body, req.user.id);
       res.json({ success: true, data: assessment });
     } catch (error) {
       console.error('Error updating assessment:', error);
@@ -111,7 +133,7 @@ class PugkiController {
   async deleteAssessment(req, res) {
     try {
       const { id } = req.params;
-      await this.service.deleteAssessment(id);
+      await this.service.deleteAssessment(id, req.user.id);
       res.json({ success: true, message: 'Assessment deleted successfully' });
     } catch (error) {
       console.error('Error deleting assessment:', error);

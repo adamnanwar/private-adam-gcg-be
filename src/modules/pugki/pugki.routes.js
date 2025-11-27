@@ -17,6 +17,9 @@ module.exports = function(db) {
   router.get('/templates', controller.getTemplates.bind(controller));
   router.get('/templates/hierarchy', controller.getTemplateHierarchy.bind(controller));
 
+  // Master Data
+  router.get('/master-data', controller.getMasterData.bind(controller));
+
   // Assessments
   router.get('/assessments', controller.getAssessments.bind(controller));
   router.get('/assessments/:id', controller.getAssessmentById.bind(controller));

@@ -242,7 +242,7 @@ class SK16Service {
         'factor.kode as factor_kode',
         'factor.nama as factor_nama',
         'factor.deskripsi as factor_deskripsi',
-        'factor.weight as factor_weight',
+        'factor.score as factor_score',
         'factor.max_score as factor_max_score',
         'factor.pic_unit_bidang_id as factor_pic_unit_bidang_id',
         'factor.sort as factor_sort',
@@ -350,23 +350,22 @@ class SK16Service {
           if (row.factor_id) {
             let factor = parameter.factors.find(f => f.id === row.factor_id);
             if (!factor) {
-              // For SK16 Master Data: score = weight * max_score (Capaian = bobot × nilai)
-              const weight = parseFloat(row.factor_weight || 0);
+              // For SK16 Master Data: score is stored directly in factor table
+              const factorScore = parseFloat(row.factor_score || 0);
               const maxScore = parseFloat(row.factor_max_score || 1);
-              const calculatedScore = weight * maxScore;
 
               factor = {
                 id: row.factor_id,
                 kode: row.factor_kode,
                 nama: row.factor_nama,
                 deskripsi: row.factor_deskripsi,
-                weight: weight,
+                score: factorScore, // Score from factor table
                 max_score: maxScore,
+                response_score: parseFloat(row.score || 0), // Response score if exists
                 pic_unit_bidang_id: row.factor_pic_unit_bidang_id || null,
                 sort: row.factor_sort,
                 created_at: row.factor_created_at,
                 updated_at: row.factor_updated_at,
-                score: calculatedScore, // Use calculated score (weight * max_score)
                 comment: row.comment || null,
                 evidence: evidenceMap[row.factor_id] || []
               };

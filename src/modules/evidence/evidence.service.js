@@ -46,28 +46,25 @@ class EvidenceService {
 
   async uploadEvidenceGeneric(targetType, targetId, file, note, userId, assessmentId) {
     try {
-      // Map target_type to database constraint values
-      // Database only allows 'kka' or 'aoi', so map accordingly
-      let dbTargetType = targetType;
+      // Validate target exists based on type
       let target;
 
       switch (targetType) {
         case 'factor':
           target = await this.db('factor').where('id', targetId).first();
           if (!target) throw new Error('Factor not found');
-          // Map 'factor' to 'kka' for database constraint
-          dbTargetType = 'kka';
           break;
         case 'parameter':
           target = await this.db('parameter').where('id', targetId).first();
           if (!target) throw new Error('Parameter not found');
-          // Map 'parameter' to 'kka' for database constraint
-          dbTargetType = 'kka';
+          break;
+        case 'kka':
+          target = await this.db('kka').where('id', targetId).first();
+          if (!target) throw new Error('KKA not found');
           break;
         case 'aoi':
           target = await this.db('aoi').where('id', targetId).first();
           if (!target) throw new Error('AOI not found');
-          dbTargetType = 'aoi';
           break;
         default:
           throw new Error('Invalid target type');
@@ -85,7 +82,7 @@ class EvidenceService {
       // - assessment_id (REQUIRED for querying)
       const evidence = {
         id: randomUUID(),
-        target_type: dbTargetType,  // Use mapped value: 'kka' or 'aoi'
+        target_type: targetType,  // Use actual target type (kka, aoi, or factor)
         target_id: targetId,
         assessment_id: assessmentId,          // CRITICAL: Link to assessment
         filename: file.filename,              // Stored filename

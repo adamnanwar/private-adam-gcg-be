@@ -91,14 +91,15 @@ class ManualAssessmentService {
       };
 
         for (const kka of kkaData) {
-      const kkaId = uuidv4();
+      // Use existing ID if it's not a temporary ID (temp-kka-*)
+      const kkaId = (kka.id && !kka.id.startsWith('temp-')) ? kka.id : uuidv4();
       hierarchyIds.kka[kka.id || kkaId] = { clientId: kka.id || kkaId, dbId: kkaId };
 
       await trx('kka').insert({
         id: kkaId,
         assessment_id: assessmentId,
-        kode: kka.kode || null,
-        nama: kka.nama || null,
+        kode: kka.kode || 'KKA-' + kkaId.substring(0, 8),  // Generate default if not provided
+        nama: kka.nama || 'Unnamed KKA',  // Default name if not provided
         deskripsi: kka.deskripsi || null,
         weight: kka.weight || null,
         sort: kka.sort || 0,
@@ -108,15 +109,16 @@ class ManualAssessmentService {
       });
 
       for (const aspect of kka.aspects || []) {
-        const aspectId = uuidv4();
+        // Use existing ID if it's not a temporary ID (temp-aspect-*)
+        const aspectId = (aspect.id && !aspect.id.startsWith('temp-')) ? aspect.id : uuidv4();
         hierarchyIds.aspect[aspect.id || aspectId] = { clientId: aspect.id || aspectId, dbId: aspectId };
 
         await trx('aspect').insert({
           id: aspectId,
           assessment_id: assessmentId,
           kka_id: kkaId,
-          kode: aspect.kode || null,
-          nama: aspect.nama || null,
+          kode: aspect.kode || 'ASP-' + aspectId.substring(0, 8),  // Generate default if not provided
+          nama: aspect.nama || 'Unnamed Aspect',  // Default name if not provided
           weight: aspect.weight || 1,
           sort: aspect.sort || 0,
           is_active: true,
@@ -125,7 +127,8 @@ class ManualAssessmentService {
         });
 
         for (const parameter of aspect.parameters || []) {
-          const parameterId = uuidv4();
+          // Use existing ID if it's not a temporary ID (temp-parameter-*)
+          const parameterId = (parameter.id && !parameter.id.startsWith('temp-')) ? parameter.id : uuidv4();
           hierarchyIds.parameter[parameter.id || parameterId] = { clientId: parameter.id || parameterId, dbId: parameterId };
 
           await trx('parameter').insert({
@@ -133,8 +136,8 @@ class ManualAssessmentService {
             assessment_id: assessmentId,
             kka_id: kkaId,
             aspect_id: aspectId,
-            kode: parameter.kode || null,
-            nama: parameter.nama || null,
+            kode: parameter.kode || 'PAR-' + parameterId.substring(0, 8),  // Generate default if not provided
+            nama: parameter.nama || 'Unnamed Parameter',  // Default name if not provided
             weight: parameter.weight || 1,
             sort: parameter.sort || 0,
             is_active: true,
@@ -143,7 +146,8 @@ class ManualAssessmentService {
           });
 
           for (const factor of parameter.factors || []) {
-            const factorId = uuidv4();
+            // Use existing ID if it's not a temporary ID (temp-factor-*)
+            const factorId = (factor.id && !factor.id.startsWith('temp-')) ? factor.id : uuidv4();
             hierarchyIds.factor[factor.id || factorId] = {
               clientId: factor.id || factorId,
               dbId: factorId,
@@ -161,7 +165,7 @@ class ManualAssessmentService {
               aspect_id: aspectId,
               parameter_id: parameterId,
               kode: hierarchicalKode,  // Use hierarchical code to ensure uniqueness
-              nama: factor.nama || null,
+              nama: factor.nama || 'Unnamed Factor',  // Default name if not provided
               deskripsi: factor.deskripsi || null,
               score: factor.score || 0,  // Renamed from weight
               max_score: factor.max_score || 1,
@@ -271,10 +275,12 @@ class ManualAssessmentService {
       await trx('aspect').where('assessment_id', assessmentId).del();
       await trx('kka').where('assessment_id', assessmentId).del();
 
-      await this._persistHierarchy(trx, assessmentId, payload.kkas || [], userId);
+      const hierarchy = await this._persistHierarchy(trx, assessmentId, payload.kkas || [], userId);
 
       await trx.commit();
       logger.info(`Manual assessment ${assessmentId} updated by ${userId}`);
+
+      return { hierarchy };
     } catch (error) {
       await trx.rollback();
       logger.error('Error in updateManualAssessment service:', error);
@@ -387,7 +393,7 @@ class ManualAssessmentService {
                     ? await this.repository.db('evidence')
                         .select('evidence.*')
                         .whereIn('evidence.target_id', factorIds)
-                        .where('evidence.target_type', 'kka')  // factors are stored as 'kka' type
+                        .where('evidence.target_type', 'factor')  // Fixed: use 'factor' not 'kka'
                         .where('evidence.assessment_id', assessmentId)
                         .orderBy('evidence.created_at', 'desc')
                     : [];

@@ -30,10 +30,25 @@ class AcgsRepository {
   async getAllAssessments(filters = {}) {
     let query = this.db('acgs_assessment as aa')
       .leftJoin('users as u', 'aa.created_by', 'u.id')
-      .select('aa.*', 'u.name as created_by_name');
+      .select('aa.*', 'u.name as created_by_name')
+      .whereNull('aa.deleted_at')
+      .where('aa.is_master_data', false); // Only show actual assessments, not master data
 
     if (filters.status) query = query.where('aa.status', filters.status);
     if (filters.assessment_year) query = query.where('aa.assessment_year', filters.assessment_year);
+    if (filters.search) query = query.where('aa.title', 'ilike', `%${filters.search}%`);
+
+    const assessments = await query.orderBy('aa.created_at', 'desc');
+    return assessments.map(a => AcgsAssessment.fromDatabase(a));
+  }
+
+  async getAllMasterData(filters = {}) {
+    let query = this.db('acgs_assessment as aa')
+      .leftJoin('users as u', 'aa.created_by', 'u.id')
+      .select('aa.*', 'u.name as created_by_name')
+      .whereNull('aa.deleted_at')
+      .where('aa.is_master_data', true); // Only show master data
+
     if (filters.search) query = query.where('aa.title', 'ilike', `%${filters.search}%`);
 
     const assessments = await query.orderBy('aa.created_at', 'desc');
@@ -45,12 +60,14 @@ class AcgsRepository {
       .leftJoin('users as u', 'aa.created_by', 'u.id')
       .select('aa.*', 'u.name as created_by_name')
       .where('aa.id', id)
+      .whereNull('aa.deleted_at')
       .first();
     return AcgsAssessment.fromDatabase(assessment);
   }
 
   async createAssessment(data) {
-    const [id] = await this.db('acgs_assessment').insert(data).returning('id');
+    const [result] = await this.db('acgs_assessment').insert(data).returning('id');
+    const id = typeof result === 'object' ? result.id : result;
     return this.getAssessmentById(id);
   }
 
@@ -61,8 +78,13 @@ class AcgsRepository {
     return this.getAssessmentById(id);
   }
 
-  async deleteAssessment(id) {
-    await this.db('acgs_assessment').where('id', id).del();
+  async deleteAssessment(id, userId) {
+    await this.db('acgs_assessment')
+      .where('id', id)
+      .update({
+        deleted_at: this.db.fn.now(),
+        deleted_by: userId
+      });
   }
 
   // ========== RESPONSE METHODS ==========

@@ -51,6 +51,15 @@ class AOIController {
 
       const result = await this.service.getAllAOI(options);
 
+      // Debug logging
+      console.log('🔍 AOI getAllAOI result:', {
+        userRole: req.user.role,
+        userUnitId: userUnitId,
+        isAdmin: req.user.role === 'admin',
+        totalResults: result.data.length,
+        statuses: result.data.map(aoi => aoi.status)
+      });
+
       res.json({
         status: 'success',
         data: result.data.map(aoi => aoi.toJSON()),
