@@ -74,8 +74,9 @@ app.use(compression());
 // Logging middleware
 app.use(morgan('combined'));
 
-// Static files
+// Static files - serve both at /uploads and /api/uploads for proxy compatibility
 app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+app.use('/api/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
