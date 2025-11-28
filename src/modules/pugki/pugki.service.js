@@ -126,14 +126,27 @@ class PugkiService {
       const { v4: uuidv4 } = require('uuid');
       const assessmentId = uuidv4();
 
+      // Check if any PICs are assigned
+      const hasPICAssignments = (data.prinsip || []).some(prinsip =>
+        (prinsip.rekomendasi || []).some(rekomendasi =>
+          rekomendasi.pic_unit_bidang_id
+        )
+      );
+
+      // Set status to in_progress if PICs are assigned, otherwise use provided status or draft
+      const initialStatus = data.is_master_data
+        ? 'selesai'
+        : (hasPICAssignments ? 'in_progress' : (data.status || 'draft'));
+
       // Create assessment
       await trx('pugki_assessment').insert({
         id: assessmentId,
         title: data.title,
         assessment_year: data.assessment_year,
-        status: data.status || 'draft',
+        status: initialStatus,
         notes: data.notes || '',
         is_master_data: data.is_master_data || false,
+        assessor_id: data.assessor_id || userId,
         created_by: userId,
         created_at: new Date(),
         updated_at: new Date()
@@ -146,11 +159,97 @@ class PugkiService {
 
       await trx.commit();
 
+      // Send email notifications for PIC assignments (after commit, in background)
+      if (hasPICAssignments && !data.is_master_data) {
+        setImmediate(async () => {
+          try {
+            await this.sendPICNotifications(assessmentId);
+          } catch (emailError) {
+            console.error('Failed to send PUGKI email notifications (non-blocking):', emailError);
+          }
+        });
+      }
+
       // Return created assessment with hierarchy
       return await this.getAssessmentById(assessmentId);
     } catch (error) {
       await trx.rollback();
       console.error('Error creating PUGKI assessment:', error);
+      throw error;
+    }
+  }
+
+  async sendPICNotifications(assessmentId) {
+    const { db } = require('../../config/database');
+    const emailService = require('../../services/email.service');
+
+    try {
+      // Get assessment details
+      const assessment = await db('pugki_assessment')
+        .where('id', assessmentId)
+        .first();
+
+      if (!assessment) {
+        console.log('⚠️  PUGKI Assessment not found, skipping email');
+        return;
+      }
+
+      // Get all rekomendasi with PIC assignments for this assessment
+      const rekomendasi = await db('pugki_rekomendasi')
+        .where('pugki_assessment_id', assessmentId)
+        .whereNotNull('pic_unit_bidang_id')
+        .select('*');
+
+      if (rekomendasi.length === 0) {
+        console.log('⚠️  No PUGKI rekomendasi with PIC assignments, skipping email');
+        return;
+      }
+
+      console.log(`📧 Sending PUGKI notifications for ${rekomendasi.length} rekomendasi`);
+
+      // Group by unit bidang
+      const unitGroups = {};
+      for (const rek of rekomendasi) {
+        const unitId = rek.pic_unit_bidang_id;
+        if (!unitGroups[unitId]) {
+          const unit = await db('unit_bidang').where('id', unitId).first();
+          unitGroups[unitId] = {
+            unit_id: unitId,
+            unit_nama: unit?.nama || 'Unknown',
+            unit_kode: unit?.kode || 'Unknown',
+            items: []
+          };
+        }
+        unitGroups[unitId].items.push(rek);
+      }
+
+      // Get users for each unit and send emails
+      for (const unitId of Object.keys(unitGroups)) {
+        const users = await db('users')
+          .where('unit_bidang_id', unitId)
+          .andWhere('is_active', true)
+          .select('*');
+
+        console.log(`   📌 Unit "${unitGroups[unitId].unit_nama}": Found ${users.length} active user(s)`);
+
+        if (users.length > 0) {
+          const picUsers = users.map(user => ({
+            ...user,
+            unit_nama: unitGroups[unitId].unit_nama,
+            unit_kode: unitGroups[unitId].unit_kode,
+            assigned_items: unitGroups[unitId].items
+          }));
+
+          try {
+            await emailService.sendPugkiAssessmentNotification(assessment, picUsers, unitGroups[unitId].items);
+            console.log(`✅ PUGKI email sent to unit "${unitGroups[unitId].unit_nama}"`);
+          } catch (emailError) {
+            console.error(`⚠️  Failed to send PUGKI email to unit "${unitGroups[unitId].unit_nama}":`, emailError.message);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error sending PUGKI PIC notifications:', error);
       throw error;
     }
   }
@@ -188,6 +287,7 @@ class PugkiService {
             referensi: rekomendasiItem.referensi || '',
             score: rekomendasiItem.score || 0,
             comment: rekomendasiItem.comment || '',
+            pic_unit_bidang_id: rekomendasiItem.pic_unit_bidang_id || null,
             sort: rekomendasiItem.sort || 0,
             created_at: new Date(),
             updated_at: new Date()
@@ -233,11 +333,114 @@ class PugkiService {
 
       await trx.commit();
 
+      // Auto-save to master data if status is 'selesai'
+      if (data.status === 'selesai' && !data.is_master_data) {
+        setImmediate(async () => {
+          try {
+            await this.autoSaveToMasterData(id);
+          } catch (error) {
+            console.error('Failed to auto-save to master data (non-blocking):', error);
+          }
+        });
+      }
+
       return await this.getAssessmentById(id);
     } catch (error) {
       await trx.rollback();
       console.error('Error updating PUGKI assessment:', error);
       throw error;
+    }
+  }
+
+  async autoSaveToMasterData(assessmentId) {
+    try {
+      const { db } = require('../../config/database');
+
+      // Get assessment
+      const assessment = await db('pugki_assessment')
+        .where('id', assessmentId)
+        .whereNull('deleted_at')
+        .first();
+
+      if (!assessment) {
+        console.log('Assessment not found for auto-save');
+        return;
+      }
+
+      // Only save if status is 'selesai' and NOT already master data
+      if (assessment.status !== 'selesai' || assessment.is_master_data) {
+        console.log('Assessment does not meet criteria for auto-save to master data');
+        return;
+      }
+
+      // Check if similar master data already exists (by title + year)
+      const existing = await db('pugki_assessment')
+        .where('title', assessment.title)
+        .where('assessment_year', assessment.assessment_year)
+        .where('is_master_data', true)
+        .whereNull('deleted_at')
+        .first();
+
+      if (existing) {
+        console.log(`Master data already exists for: ${assessment.title} (${assessment.assessment_year})`);
+        return;
+      }
+
+      // Get full assessment structure
+      const fullData = await this.getAssessmentById(assessmentId);
+
+      if (!fullData || !fullData.prinsip || fullData.prinsip.length === 0) {
+        console.log('No structure to save to master data');
+        return;
+      }
+
+      // Create as master data
+      const { v4: uuidv4 } = require('uuid');
+      const masterDataId = uuidv4();
+      const trx = await db.transaction();
+
+      try {
+        // Create master data assessment
+        await trx('pugki_assessment').insert({
+          id: masterDataId,
+          title: assessment.title,
+          assessment_year: assessment.assessment_year,
+          status: 'selesai',
+          notes: (assessment.notes || '') + ' [AUTO-SAVED FROM ASSESSMENT]',
+          is_master_data: true,
+          assessor_id: assessment.assessor_id,
+          created_by: assessment.created_by,
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+
+        // Copy structure (prinsip & rekomendasi) - but clear assessment-specific data
+        const masterDataPrinsip = fullData.prinsip.map(p => ({
+          ...p,
+          rekomendasi: (p.rekomendasi || []).map(r => ({
+            kode: r.kode,
+            nama: r.nama,
+            comply_explain: r.comply_explain,
+            referensi: r.referensi,
+            // Clear assessment-specific fields
+            score: null,
+            comment: null,
+            pic_unit_bidang_id: null
+          }))
+        }));
+
+        await this.createHierarchy(trx, masterDataId, masterDataPrinsip);
+
+        await trx.commit();
+        console.log(`✅ Auto-saved to master data: ${masterDataId} (${assessment.title})`);
+      } catch (error) {
+        await trx.rollback();
+        console.error('Failed to create master data in transaction:', error);
+        throw error;
+      }
+    } catch (error) {
+      console.error('Failed to auto-save to master data:', error);
+      // Non-blocking, don't throw
     }
   }
 

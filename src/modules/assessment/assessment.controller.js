@@ -202,10 +202,15 @@ class AssessmentController {
       }
     } catch (error) {
       logger.error('Error in createAssessment controller:', error);
+      logger.error('Error details:', error.message, error.code, error.detail);
       if (error.message.includes('required')) {
         res.status(400).json(errorResponse(error.message, 'VALIDATION_ERROR'));
+      } else if (error.code === '23502') {
+        res.status(400).json(errorResponse(`Missing required field: ${error.column || 'unknown'}`, 'VALIDATION_ERROR'));
+      } else if (error.code === '23503') {
+        res.status(400).json(errorResponse(`Invalid reference: ${error.detail || error.message}`, 'VALIDATION_ERROR'));
       } else {
-        res.status(500).json(errorResponse('Failed to create assessment', 'INTERNAL_ERROR'));
+        res.status(500).json(errorResponse(`Failed to create assessment: ${error.message}`, 'INTERNAL_ERROR'));
       }
     }
   }

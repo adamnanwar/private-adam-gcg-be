@@ -17,6 +17,13 @@ const uploadEvidenceGenericSchema = Joi.object({
   note: Joi.string().optional().max(500).allow('')
 });
 
+// Simple file upload schema (for form fields like referensi)
+const simpleUploadSchema = Joi.object({
+  targetType: Joi.string().optional().allow(''),
+  targetId: Joi.string().optional().allow(''),
+  note: Joi.string().optional().max(500).allow('')
+});
+
 class EvidenceController {
   /**
    * Upload evidence for factor/parameter/aoi (generic)
@@ -54,6 +61,38 @@ class EvidenceController {
         res.status(400).json(errorResponse('File too large. Maximum size is 10MB', 'VALIDATION_ERROR'));
       } else {
         res.status(500).json(errorResponse('Failed to upload evidence', 'INTERNAL_ERROR'));
+      }
+    }
+  }
+
+  /**
+   * Simple file upload (for form fields like referensi, bukti, etc.)
+   * Does NOT require assessment_id or target validation
+   */
+  async uploadSimple(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json(errorResponse('No file uploaded', 'VALIDATION_ERROR'));
+      }
+
+      // Generate file URL
+      const fileUrl = `/uploads/evidence/${req.file.filename}`;
+      
+      res.json(successResponse({
+        uri: fileUrl,
+        filename: req.file.filename,
+        originalName: req.file.originalname,
+        size: req.file.size,
+        mimeType: req.file.mimetype
+      }, 'File uploaded successfully'));
+    } catch (error) {
+      logger.error('Error in uploadSimple controller:', error);
+      if (error.message.includes('Only images, PDFs, and Office documents are allowed')) {
+        res.status(400).json(errorResponse('Invalid file type. Only images, PDFs, and Office documents are allowed', 'VALIDATION_ERROR'));
+      } else if (error.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json(errorResponse('File too large. Maximum size is 10MB', 'VALIDATION_ERROR'));
+      } else {
+        res.status(500).json(errorResponse('Failed to upload file', 'INTERNAL_ERROR'));
       }
     }
   }

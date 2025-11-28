@@ -81,9 +81,10 @@ class PugkiController {
         assessment_id: Joi.string().uuid().optional(),
         title: Joi.string().required(),
         assessment_year: Joi.number().integer().required(),
-        status: Joi.string().valid('draft', 'in_progress', 'completed').default('draft'),
+        status: Joi.string().valid('draft', 'in_progress', 'proses_tindak_lanjut', 'verifikasi', 'selesai', 'selesai_berkelanjutan').default('draft'),
         notes: Joi.string().allow('').optional(),
         is_master_data: Joi.boolean().optional().default(false),
+        assessor_id: Joi.string().uuid().optional(),
         prinsip: Joi.array().items(Joi.object({
           id: Joi.string().optional(),
           kode: Joi.string().allow('', null).optional(),
@@ -98,7 +99,8 @@ class PugkiController {
             referensi: Joi.string().allow('', null).optional(),
             score: Joi.number().allow(null).optional(),
             comment: Joi.string().allow('', null).optional(),
-            sort: Joi.number().optional()
+            sort: Joi.number().optional(),
+            pic_unit_bidang_id: Joi.string().uuid().allow(null).optional()
           })).optional()
         })).optional()
       });

@@ -47,6 +47,7 @@ class ManualAssessmentService {
         assessor_id: assessmentData.assessor_id || userId,
         status: initialStatus,
         notes: assessmentData.notes || '',
+        assessment_type: 'SK16', // Set assessment type for SK16 manual assessments
         created_at: new Date(),
         updated_at: new Date()
       };
@@ -108,8 +109,8 @@ class ManualAssessmentService {
       };
 
         for (const kka of kkaData) {
-      // Use existing ID if it's not a temporary ID (temp-kka-*)
-      const kkaId = (kka.id && !kka.id.startsWith('temp-')) ? kka.id : uuidv4();
+      // Check if ID is a valid UUID, otherwise generate new one
+      const kkaId = (kka.id && isValidUUID(kka.id)) ? kka.id : uuidv4();
       hierarchyIds.kka[kka.id || kkaId] = { clientId: kka.id || kkaId, dbId: kkaId };
 
       await trx('kka').insert({
@@ -126,8 +127,8 @@ class ManualAssessmentService {
       });
 
       for (const aspect of kka.aspects || []) {
-        // Use existing ID if it's not a temporary ID (temp-aspect-*)
-        const aspectId = (aspect.id && !aspect.id.startsWith('temp-')) ? aspect.id : uuidv4();
+        // Check if ID is a valid UUID, otherwise generate new one
+        const aspectId = (aspect.id && isValidUUID(aspect.id)) ? aspect.id : uuidv4();
         hierarchyIds.aspect[aspect.id || aspectId] = { clientId: aspect.id || aspectId, dbId: aspectId };
 
         await trx('aspect').insert({
@@ -144,8 +145,8 @@ class ManualAssessmentService {
         });
 
         for (const parameter of aspect.parameters || []) {
-          // Use existing ID if it's not a temporary ID (temp-parameter-*)
-          const parameterId = (parameter.id && !parameter.id.startsWith('temp-')) ? parameter.id : uuidv4();
+          // Check if ID is a valid UUID, otherwise generate new one
+          const parameterId = (parameter.id && isValidUUID(parameter.id)) ? parameter.id : uuidv4();
           hierarchyIds.parameter[parameter.id || parameterId] = { clientId: parameter.id || parameterId, dbId: parameterId };
 
           await trx('parameter').insert({
@@ -163,8 +164,8 @@ class ManualAssessmentService {
           });
 
           for (const factor of parameter.factors || []) {
-            // Use existing ID if it's not a temporary ID (temp-factor-*)
-            const factorId = (factor.id && !factor.id.startsWith('temp-')) ? factor.id : uuidv4();
+            // Check if ID is a valid UUID, otherwise generate new one
+            const factorId = (factor.id && isValidUUID(factor.id)) ? factor.id : uuidv4();
             hierarchyIds.factor[factor.id || factorId] = {
               clientId: factor.id || factorId,
               dbId: factorId,

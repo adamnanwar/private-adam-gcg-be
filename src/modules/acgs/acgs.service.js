@@ -158,14 +158,29 @@ class AcgsService {
       const { v4: uuidv4 } = require('uuid');
       const assessmentId = uuidv4();
 
+      // Check if any PICs are assigned
+      const hasPICAssignments = (data.sections || []).some(section =>
+        (section.parameters || []).some(parameter =>
+          (parameter.questions || []).some(question =>
+            question.pic_unit_bidang_id
+          )
+        )
+      );
+
+      // Set status to in_progress if PICs are assigned, otherwise use provided status or draft
+      const initialStatus = data.is_master_data
+        ? 'selesai'
+        : (hasPICAssignments ? 'in_progress' : (data.status || 'draft'));
+
       // Create assessment
       await trx('acgs_assessment').insert({
         id: assessmentId,
         title: data.title,
         assessment_year: data.assessment_year,
-        status: data.status || 'draft',
+        status: initialStatus,
         notes: data.notes || '',
         is_master_data: data.is_master_data || false,
+        assessor_id: data.assessor_id || userId,
         created_by: userId,
         created_at: new Date(),
         updated_at: new Date()
@@ -178,11 +193,115 @@ class AcgsService {
 
       await trx.commit();
 
+      // Send email notifications to PICs if any were assigned and not master data
+      if (hasPICAssignments && !data.is_master_data) {
+        setImmediate(async () => {
+          try {
+            await this.sendPICNotifications(assessmentId);
+          } catch (emailError) {
+            console.error('Failed to send ACGS email notifications (non-blocking):', emailError);
+          }
+        });
+      }
+
       // Return created assessment with hierarchy
       return await this.getAssessmentById(assessmentId);
     } catch (error) {
       await trx.rollback();
       console.error('Error creating ACGS assessment:', error);
+      throw error;
+    }
+  }
+
+  async sendPICNotifications(assessmentId) {
+    try {
+      const { db } = require('../../config/database');
+
+      // Get assessment details
+      const assessment = await db('acgs_assessment')
+        .where('id', assessmentId)
+        .whereNull('deleted_at')
+        .first();
+
+      if (!assessment) {
+        throw new Error('Assessment not found');
+      }
+
+      // Get all questions with PIC assignments
+      const questionsWithPIC = await db('acgs_question as q')
+        .join('acgs_parameter as p', 'q.acgs_parameter_id', 'p.id')
+        .join('acgs_section as s', 'q.acgs_section_id', 's.id')
+        .join('unit_bidang as u', 'q.pic_unit_bidang_id', 'u.id')
+        .where('q.acgs_assessment_id', assessmentId)
+        .whereNotNull('q.pic_unit_bidang_id')
+        .select(
+          'q.id as question_id',
+          'q.kode as question_kode',
+          'q.nama as question_nama',
+          'p.nama as parameter_nama',
+          's.nama as section_nama',
+          'q.pic_unit_bidang_id',
+          'u.nama as unit_nama',
+          'u.kode as unit_kode'
+        );
+
+      if (questionsWithPIC.length === 0) {
+        console.log('No PIC assignments found for notifications');
+        return;
+      }
+
+      // Group by unit_bidang
+      const picGroups = {};
+      for (const question of questionsWithPIC) {
+        const unitId = question.pic_unit_bidang_id;
+        if (!picGroups[unitId]) {
+          picGroups[unitId] = {
+            unit_id: unitId,
+            unit_nama: question.unit_nama,
+            unit_kode: question.unit_kode,
+            questions: []
+          };
+        }
+        picGroups[unitId].questions.push(question);
+      }
+
+      // Get users for each unit and send emails
+      for (const unitId in picGroups) {
+        const group = picGroups[unitId];
+
+        // Get users in this unit
+        const users = await db('users')
+          .where('unit_bidang_id', unitId)
+          .whereNull('deleted_at')
+          .select('id', 'email', 'name');
+
+        if (users.length === 0) {
+          console.log(`No users found for unit ${group.unit_nama}`);
+          continue;
+        }
+
+        // Send email to each user
+        for (const user of users) {
+          if (!user.email) continue;
+
+          try {
+            // Here you would call your email service
+            // await emailService.sendAcgsAssessmentNotification(user.email, {
+            //   userName: user.name,
+            //   assessmentTitle: assessment.title,
+            //   unitName: group.unit_nama,
+            //   questionCount: group.questions.length,
+            //   questions: group.questions
+            // });
+
+            console.log(`Would send ACGS notification email to ${user.email} for ${group.questions.length} questions`);
+          } catch (error) {
+            console.error(`Failed to send email to ${user.email}:`, error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error in sendPICNotifications:', error);
       throw error;
     }
   }
@@ -242,6 +361,7 @@ class AcgsService {
                 implementasi_bukti: questionItem.implementasi_bukti || '',
                 link_dokumen: questionItem.link_dokumen || '',
                 comment: questionItem.comment || '',
+                pic_unit_bidang_id: questionItem.pic_unit_bidang_id || null,
                 sort: questionItem.sort || 0,
                 created_at: new Date(),
                 updated_at: new Date()
@@ -289,11 +409,124 @@ class AcgsService {
 
       await trx.commit();
 
+      // Auto-save to master data if status is 'selesai'
+      if (data.status === 'selesai' && !data.is_master_data) {
+        setImmediate(async () => {
+          try {
+            await this.autoSaveToMasterData(id);
+          } catch (error) {
+            console.error('Failed to auto-save to master data (non-blocking):', error);
+          }
+        });
+      }
+
       return await this.getAssessmentById(id);
     } catch (error) {
       await trx.rollback();
       console.error('Error updating ACGS assessment:', error);
       throw error;
+    }
+  }
+
+  async autoSaveToMasterData(assessmentId) {
+    try {
+      const { db } = require('../../config/database');
+
+      // Get assessment
+      const assessment = await db('acgs_assessment')
+        .where('id', assessmentId)
+        .whereNull('deleted_at')
+        .first();
+
+      if (!assessment) {
+        console.log('Assessment not found for auto-save');
+        return;
+      }
+
+      // Only save if status is 'selesai' and NOT already master data
+      if (assessment.status !== 'selesai' || assessment.is_master_data) {
+        console.log('Assessment does not meet criteria for auto-save to master data');
+        return;
+      }
+
+      // Check if similar master data already exists (by title + year)
+      const existing = await db('acgs_assessment')
+        .where('title', assessment.title)
+        .where('assessment_year', assessment.assessment_year)
+        .where('is_master_data', true)
+        .whereNull('deleted_at')
+        .first();
+
+      if (existing) {
+        console.log(`Master data already exists for: ${assessment.title} (${assessment.assessment_year})`);
+        return;
+      }
+
+      // Get full assessment structure
+      const fullData = await this.getAssessmentById(assessmentId);
+
+      if (!fullData || !fullData.sections || fullData.sections.length === 0) {
+        console.log('No structure to save to master data');
+        return;
+      }
+
+      // Create as master data
+      const { v4: uuidv4 } = require('uuid');
+      const masterDataId = uuidv4();
+      const trx = await db.transaction();
+
+      try {
+        // Create master data assessment
+        await trx('acgs_assessment').insert({
+          id: masterDataId,
+          title: assessment.title,
+          assessment_year: assessment.assessment_year,
+          status: 'selesai',
+          notes: (assessment.notes || '') + ' [AUTO-SAVED FROM ASSESSMENT]',
+          is_master_data: true,
+          assessor_id: assessment.assessor_id,
+          created_by: assessment.created_by,
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+
+        // Copy structure (sections, parameters, questions) - but clear assessment-specific data
+        const masterDataSections = fullData.sections.map(s => ({
+          ...s,
+          parameters: (s.parameters || []).map(p => ({
+            ...p,
+            questions: (p.questions || []).map(q => ({
+              kode: q.kode,
+              nama: q.nama,
+              pertanyaan: q.pertanyaan || q.nama,
+              bobot: q.bobot,
+              // Clear assessment-specific fields
+              answer: null,
+              jawaban: null,
+              score: null,
+              referensi: q.referensi || '',
+              referensi_panduan: '',
+              implementasi_bukti: '',
+              link_dokumen: '',
+              comment: '',
+              pic_unit_bidang_id: null,
+              sort: q.sort
+            }))
+          }))
+        }));
+
+        await this.createHierarchy(trx, masterDataId, masterDataSections);
+
+        await trx.commit();
+        console.log(`✅ Auto-saved to master data: ${masterDataId} (${assessment.title})`);
+      } catch (error) {
+        await trx.rollback();
+        console.error('Failed to create master data in transaction:', error);
+        throw error;
+      }
+    } catch (error) {
+      console.error('Failed to auto-save to master data:', error);
+      // Non-blocking, don't throw
     }
   }
 
