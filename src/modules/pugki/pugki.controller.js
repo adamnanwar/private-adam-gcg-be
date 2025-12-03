@@ -35,13 +35,19 @@ class PugkiController {
   // Assessments
   async getAssessments(req, res) {
     try {
-      const { status, assessment_year, search } = req.query;
-      const assessments = await this.service.getAllAssessments({
+      const { page = 1, limit = 10, status, assessment_year, search } = req.query;
+      const result = await this.service.getAllAssessments({
+        page: parseInt(page),
+        limit: parseInt(limit),
         status,
         assessment_year,
         search
       });
-      res.json({ success: true, data: assessments });
+      res.json({
+        success: true,
+        data: result.data,
+        pagination: result.pagination
+      });
     } catch (error) {
       console.error('Error getting assessments:', error);
       res.status(500).json({ success: false, error: error.message });
@@ -50,11 +56,17 @@ class PugkiController {
 
   async getMasterData(req, res) {
     try {
-      const { search } = req.query;
-      const masterData = await this.service.getAllMasterData({
+      const { page = 1, limit = 10, search } = req.query;
+      const result = await this.service.getAllMasterData({
+        page: parseInt(page),
+        limit: parseInt(limit),
         search
       });
-      res.json({ success: true, data: masterData });
+      res.json({
+        success: true,
+        data: result.data,
+        pagination: result.pagination
+      });
     } catch (error) {
       console.error('Error getting master data:', error);
       res.status(500).json({ success: false, error: error.message });

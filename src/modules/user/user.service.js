@@ -152,7 +152,7 @@ class UserService {
           .where('email', userData.email)
           .where('id', '!=', id)
           .first();
-        
+
         if (emailExists) {
           const error = new Error('Email already exists');
           error.code = 'DUPLICATE_EMAIL';
@@ -160,10 +160,17 @@ class UserService {
         }
       }
 
+      // Prepare update data - exclude password field
+      const { password, ...dataWithoutPassword } = userData;
       const updateData = {
-        ...userData,
+        ...dataWithoutPassword,
         updated_at: new Date().toISOString()
       };
+
+      // Hash and update password only if provided and not empty
+      if (password && password.trim() !== '' && userData.auth_provider === 'local') {
+        updateData.password_hash = await bcrypt.hash(password, 10);
+      }
 
       await db('users').where('id', id).update(updateData);
 

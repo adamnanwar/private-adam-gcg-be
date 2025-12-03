@@ -33,9 +33,19 @@ class AcgsController {
 
   async getAssessments(req, res) {
     try {
-      const { status, assessment_year, search } = req.query;
-      const assessments = await this.service.getAllAssessments({ status, assessment_year, search });
-      res.json({ success: true, data: assessments });
+      const { page = 1, limit = 10, status, assessment_year, search } = req.query;
+      const result = await this.service.getAllAssessments({
+        page: parseInt(page),
+        limit: parseInt(limit),
+        status,
+        assessment_year,
+        search
+      });
+      res.json({
+        success: true,
+        data: result.data,
+        pagination: result.pagination
+      });
     } catch (error) {
       console.error('Error getting assessments:', error);
       res.status(500).json({ success: false, error: error.message });
@@ -44,11 +54,17 @@ class AcgsController {
 
   async getMasterData(req, res) {
     try {
-      const { search } = req.query;
-      const masterData = await this.service.getAllMasterData({
+      const { page = 1, limit = 10, search } = req.query;
+      const result = await this.service.getAllMasterData({
+        page: parseInt(page),
+        limit: parseInt(limit),
         search
       });
-      res.json({ success: true, data: masterData });
+      res.json({
+        success: true,
+        data: result.data,
+        pagination: result.pagination
+      });
     } catch (error) {
       console.error('Error getting master data:', error);
       res.status(500).json({ success: false, error: error.message });
@@ -129,6 +145,8 @@ class AcgsController {
   async updateAssessment(req, res) {
     try {
       const { id } = req.params;
+
+      console.log('ACGS Update - Request body received:', JSON.stringify(req.body, null, 2));
 
       // Pass entire data including sections to service
       const assessment = await this.service.updateAssessment(id, req.body, req.user.id);

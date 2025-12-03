@@ -11,12 +11,12 @@ class AssessmentService {
   }
 
   // Assessment Services
-  async getAllAssessments(page = 1, limit = 50, search = '', status = '', assessorId = '', userUnitId = null) {
+  async getAllAssessments(page = 1, limit = 50, search = '', status = '', assessorId = '', userUnitId = null, includeMasterData = false) {
     try {
       const offset = (page - 1) * limit;
       const [assessments, total] = await Promise.all([
-        this.repository.findAllAssessments(limit, offset, search, status, assessorId, userUnitId),
-        this.repository.countAssessments(search, status, assessorId, userUnitId)
+        this.repository.findAllAssessments(limit, offset, search, status, assessorId, userUnitId, includeMasterData),
+        this.repository.countAssessments(search, status, assessorId, userUnitId, includeMasterData)
       ]);
 
       return {

@@ -28,6 +28,9 @@ class AcgsRepository {
 
   // ========== ASSESSMENT METHODS ==========
   async getAllAssessments(filters = {}) {
+    const { page = 1, limit = 10 } = filters;
+    const offset = (page - 1) * limit;
+
     let query = this.db('acgs_assessment as aa')
       .leftJoin('users as u', 'aa.created_by', 'u.id')
       .select('aa.*', 'u.name as created_by_name')
@@ -38,11 +41,32 @@ class AcgsRepository {
     if (filters.assessment_year) query = query.where('aa.assessment_year', filters.assessment_year);
     if (filters.search) query = query.where('aa.title', 'ilike', `%${filters.search}%`);
 
-    const assessments = await query.orderBy('aa.created_at', 'desc');
-    return assessments.map(a => AcgsAssessment.fromDatabase(a));
+    // Get total count
+    const countQuery = query.clone().clearSelect().clearOrder().count('* as count');
+    const [{ count }] = await countQuery;
+    const total = parseInt(count);
+
+    // Get paginated data
+    const assessments = await query
+      .orderBy('aa.created_at', 'desc')
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      data: assessments.map(a => AcgsAssessment.fromDatabase(a)),
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    };
   }
 
   async getAllMasterData(filters = {}) {
+    const { page = 1, limit = 10 } = filters;
+    const offset = (page - 1) * limit;
+
     let query = this.db('acgs_assessment as aa')
       .leftJoin('users as u', 'aa.created_by', 'u.id')
       .select('aa.*', 'u.name as created_by_name')
@@ -51,8 +75,26 @@ class AcgsRepository {
 
     if (filters.search) query = query.where('aa.title', 'ilike', `%${filters.search}%`);
 
-    const assessments = await query.orderBy('aa.created_at', 'desc');
-    return assessments.map(a => AcgsAssessment.fromDatabase(a));
+    // Get total count
+    const countQuery = query.clone().clearSelect().clearOrder().count('* as count');
+    const [{ count }] = await countQuery;
+    const total = parseInt(count);
+
+    // Get paginated data
+    const assessments = await query
+      .orderBy('aa.created_at', 'desc')
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      data: assessments.map(a => AcgsAssessment.fromDatabase(a)),
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    };
   }
 
   async getAssessmentById(id) {

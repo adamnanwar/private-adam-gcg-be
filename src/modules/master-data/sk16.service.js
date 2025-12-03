@@ -109,6 +109,7 @@ class SK16Service {
         assessor_id: userId,
         status: 'selesai', // Use 'selesai' instead of 'completed' to match constraint
         notes: notes,
+        assessment_type: 'SK16', // Mark as SK16 master data
         created_at: new Date(),
         updated_at: new Date()
       });
@@ -161,6 +162,7 @@ class SK16Service {
           title: data.organization_name, // Use 'title' column
           assessment_date: data.assessment_date,
           notes: notes,
+          assessment_type: 'SK16', // Ensure assessment_type is set
           updated_at: new Date()
         });
 

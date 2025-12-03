@@ -7,7 +7,7 @@ class AssessmentRepository {
   }
 
   // Assessment Methods
-  async findAllAssessments(limit = 50, offset = 0, search = '', status = '', assessorId = '', userUnitId = null) {
+  async findAllAssessments(limit = 50, offset = 0, search = '', status = '', assessorId = '', userUnitId = null, includeMasterData = false) {
     try {
       // Use the new assessment table directly with PIC data and FUK scores
       let query = this.db('assessment')
@@ -17,8 +17,22 @@ class AssessmentRepository {
           'users.email as assessor_email'
         )
         .leftJoin('users', 'assessment.assessor_id', 'users.id')
-        .whereNull('assessment.deleted_at')  // Exclude soft deleted assessments
-        .orderBy('assessment.created_at', 'desc');
+        .whereNull('assessment.deleted_at');  // Exclude soft deleted assessments
+
+      // Filter based on includeMasterData parameter
+      if (includeMasterData) {
+        // For master data list: only SK16 master data (notes starts with [SK16])
+        query = query
+          .where('assessment.assessment_type', 'SK16')
+          .where('assessment.notes', 'like', '[SK16]%');
+      } else {
+        // For assessment list: only SK16 assessments, exclude master data
+        query = query
+          .where('assessment.assessment_type', 'SK16')
+          .whereNot('assessment.notes', 'like', '[SK16]%');
+      }
+
+      query = query.orderBy('assessment.created_at', 'desc');
       
       if (search) {
         query = query.where(function() {
@@ -332,11 +346,24 @@ class AssessmentRepository {
     }
   }
 
-  async countAssessments(search = '', status = '', assessorId = '', userUnitId = null) {
+  async countAssessments(search = '', status = '', assessorId = '', userUnitId = null, includeMasterData = false) {
     try {
       let query = this.db('assessment')
         .leftJoin('users', 'assessment.assessor_id', 'users.id')
         .whereNull('assessment.deleted_at');  // Exclude soft deleted assessments
+
+      // Filter based on includeMasterData parameter
+      if (includeMasterData) {
+        // For master data list: only SK16 master data (notes starts with [SK16])
+        query = query
+          .where('assessment.assessment_type', 'SK16')
+          .where('assessment.notes', 'like', '[SK16]%');
+      } else {
+        // For assessment list: only SK16 assessments, exclude master data
+        query = query
+          .where('assessment.assessment_type', 'SK16')
+          .whereNot('assessment.notes', 'like', '[SK16]%');
+      }
       
       if (search) {
         query = query.where(function() {

@@ -117,21 +117,22 @@ class AssessmentController {
   // Assessment Controllers
   async getAllAssessments(req, res) {
     try {
-      const { page = 1, limit = 50, search = '', status = '', assessor_id = '' } = req.query;
-      
+      const { page = 1, limit = 50, search = '', status = '', assessor_id = '', include_master_data = 'false' } = req.query;
+
       // Get user's unit ID for filtering (only for non-admin users)
       let userUnitId = null;
       if (req.user.role !== 'admin' && req.user.unit_bidang_id) {
         userUnitId = req.user.unit_bidang_id;
       }
-      
+
       const result = await assessmentService.getAllAssessments(
-        parseInt(page), 
-        parseInt(limit), 
-        search, 
-        status, 
+        parseInt(page),
+        parseInt(limit),
+        search,
+        status,
         assessor_id,
-        userUnitId
+        userUnitId,
+        include_master_data === 'true'
       );
       
       res.json(paginatedResponse(
@@ -702,6 +703,9 @@ class AssessmentController {
       const payload = req.body;
       const userId = req.user.id;
       const db = getConnection();
+
+      console.log('SK16 Update Manual - assessmentId:', assessmentId);
+      console.log('SK16 Update Manual - payload:', JSON.stringify(payload, null, 2));
 
       const result = await manualAssessmentService.updateManualAssessment(assessmentId, payload, userId);
 

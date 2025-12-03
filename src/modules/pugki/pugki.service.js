@@ -373,21 +373,16 @@ class PugkiService {
         return;
       }
 
-      // Check if similar master data already exists (by title + year)
-      const existing = await db('pugki_assessment')
-        .where('title', assessment.title)
-        .where('assessment_year', assessment.assessment_year)
-        .where('is_master_data', true)
-        .whereNull('deleted_at')
-        .first();
-
-      if (existing) {
-        console.log(`Master data already exists for: ${assessment.title} (${assessment.assessment_year})`);
-        return;
-      }
-
       // Get full assessment structure
       const fullData = await this.getAssessmentById(assessmentId);
+
+      // Check if 100% similar master data already exists
+      const similarMasterData = await this.find100PercentSimilarMasterData(fullData);
+
+      if (similarMasterData) {
+        console.log(`100% similar master data already exists: ${similarMasterData.title} (ID: ${similarMasterData.id})`);
+        return;
+      }
 
       if (!fullData || !fullData.prinsip || fullData.prinsip.length === 0) {
         console.log('No structure to save to master data');
@@ -517,6 +512,74 @@ class PugkiService {
     // Hard delete from database
     await this.repository.deleteAssessment(id);
     return { success: true, message: 'PUGKI assessment permanently deleted' };
+  }
+
+  /**
+   * Find 100% similar master data based on full structure comparison
+   * @param {Object} assessmentData - Full assessment data with prinsip/rekomendasi
+   * @returns {Object|null} - Similar master data or null if not found
+   */
+  async find100PercentSimilarMasterData(assessmentData) {
+    try {
+      // Get all master data with same title + year as candidates
+      const candidates = await this.db('pugki_assessment')
+        .where('title', assessmentData.title)
+        .where('assessment_year', assessmentData.assessment_year)
+        .where('is_master_data', true)
+        .whereNull('deleted_at');
+
+      // Check each candidate for 100% structural similarity
+      for (const candidate of candidates) {
+        const candidateData = await this.getAssessmentById(candidate.id);
+
+        if (this.isStructure100PercentSimilar(assessmentData, candidateData)) {
+          return candidate;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error finding similar master data:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Compare two PUGKI assessment structures for 100% similarity
+   * Only compares structure (prinsip, rekomendasi), not scores/comments
+   * @param {Object} data1 - First assessment data
+   * @param {Object} data2 - Second assessment data
+   * @returns {boolean} - True if 100% similar
+   */
+  isStructure100PercentSimilar(data1, data2) {
+    // Compare prinsip count
+    if (!data1.prinsip || !data2.prinsip) return false;
+    if (data1.prinsip.length !== data2.prinsip.length) return false;
+
+    // Compare each prinsip
+    for (let i = 0; i < data1.prinsip.length; i++) {
+      const p1 = data1.prinsip[i];
+      const p2 = data2.prinsip[i];
+
+      // Compare prinsip kode + nama
+      if (p1.kode !== p2.kode || p1.nama !== p2.nama) return false;
+
+      // Compare rekomendasi count
+      if (!p1.rekomendasi || !p2.rekomendasi) return false;
+      if (p1.rekomendasi.length !== p2.rekomendasi.length) return false;
+
+      // Compare each rekomendasi
+      for (let j = 0; j < p1.rekomendasi.length; j++) {
+        const r1 = p1.rekomendasi[j];
+        const r2 = p2.rekomendasi[j];
+
+        // Compare rekomendasi kode + nama
+        if (r1.kode !== r2.kode || r1.nama !== r2.nama) return false;
+      }
+    }
+
+    // All structure matches 100%
+    return true;
   }
 }
 

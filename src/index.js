@@ -33,6 +33,7 @@ const settingsRoutes = require('./modules/settings/routes');
 const deletedDataRoutes = require('./modules/deleted-data/deleted-data.routes');
 const pugkiRoutes = require('./modules/pugki/pugki.routes');
 const acgsRoutes = require('./modules/acgs/acgs.routes');
+const aoiMonitoringRoutes = require('./modules/aoi-monitoring/aoi-monitoring.routes');
 
 // Load environment variables
 dotenv.config();
@@ -109,6 +110,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/deleted-data', deletedDataRoutes);
 app.use('/api/pugki', pugkiRoutes(db));
 app.use('/api/acgs', acgsRoutes(db));
+app.use('/api/aoi-monitoring', aoiMonitoringRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

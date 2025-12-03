@@ -55,6 +55,9 @@ class PugkiRepository {
   // ========== ASSESSMENT METHODS ==========
 
   async getAllAssessments(filters = {}) {
+    const { page = 1, limit = 10 } = filters;
+    const offset = (page - 1) * limit;
+
     let query = this.db('pugki_assessment as pa')
       .leftJoin('users as u', 'pa.created_by', 'u.id')
       .select(
@@ -76,11 +79,32 @@ class PugkiRepository {
       query = query.where('pa.title', 'ilike', `%${filters.search}%`);
     }
 
-    const assessments = await query.orderBy('pa.created_at', 'desc');
-    return assessments.map(a => PugkiAssessment.fromDatabase(a));
+    // Get total count
+    const countQuery = query.clone().clearSelect().clearOrder().count('* as count');
+    const [{ count }] = await countQuery;
+    const total = parseInt(count);
+
+    // Get paginated data
+    const assessments = await query
+      .orderBy('pa.created_at', 'desc')
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      data: assessments.map(a => PugkiAssessment.fromDatabase(a)),
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    };
   }
 
   async getAllMasterData(filters = {}) {
+    const { page = 1, limit = 10 } = filters;
+    const offset = (page - 1) * limit;
+
     let query = this.db('pugki_assessment as pa')
       .leftJoin('users as u', 'pa.created_by', 'u.id')
       .select(
@@ -94,8 +118,26 @@ class PugkiRepository {
       query = query.where('pa.title', 'ilike', `%${filters.search}%`);
     }
 
-    const assessments = await query.orderBy('pa.created_at', 'desc');
-    return assessments.map(a => PugkiAssessment.fromDatabase(a));
+    // Get total count
+    const countQuery = query.clone().clearSelect().clearOrder().count('* as count');
+    const [{ count }] = await countQuery;
+    const total = parseInt(count);
+
+    // Get paginated data
+    const assessments = await query
+      .orderBy('pa.created_at', 'desc')
+      .limit(limit)
+      .offset(offset);
+
+    return {
+      data: assessments.map(a => PugkiAssessment.fromDatabase(a)),
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit)
+      }
+    };
   }
 
   async getAssessmentById(id) {

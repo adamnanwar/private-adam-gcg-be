@@ -9,16 +9,17 @@ const createUserSchema = Joi.object({
   name: Joi.string().required().min(2).max(100),
   email: Joi.string().email().required(),
   password: Joi.string().optional().min(6),
-  role: Joi.string().valid('admin', 'assessor', 'user').required(),
+  role: Joi.string().valid('admin', 'user').required(),
   auth_provider: Joi.string().valid('local', 'ldap').default('local')
 });
 
 const updateUserSchema = Joi.object({
   name: Joi.string().optional().min(2).max(100),
   email: Joi.string().email().optional(),
-  role: Joi.string().valid('admin', 'assessor', 'user').optional(),
+  role: Joi.string().valid('admin', 'user').optional(),
   auth_provider: Joi.string().valid('local', 'ldap').optional(),
-  unit_bidang_id: Joi.string().uuid().optional().allow(null)
+  unit_bidang_id: Joi.string().uuid().optional().allow(null),
+  password: Joi.string().optional().allow('', null)
 });
 
 class UserController {

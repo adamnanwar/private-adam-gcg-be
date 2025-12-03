@@ -276,6 +276,8 @@ class ManualAssessmentService {
     const trx = await db.transaction();
 
     try {
+      logger.info(`Updating manual assessment ${assessmentId}`);
+
       await trx('assessment')
         .where('id', assessmentId)
         .update({
@@ -286,17 +288,43 @@ class ManualAssessmentService {
           updated_at: new Date(),
         });
 
-      await trx('response').where('assessment_id', assessmentId).del();
-      await trx('pic_map').where('assessment_id', assessmentId).del();
-      await trx('factor').where('assessment_id', assessmentId).del();
-      await trx('parameter').where('assessment_id', assessmentId).del();
-      await trx('aspect').where('assessment_id', assessmentId).del();
-      await trx('kka').where('assessment_id', assessmentId).del();
+      logger.info('Deleting old hierarchy data...');
 
-      const hierarchy = await this._persistHierarchy(trx, assessmentId, payload.kkas || [], userId);
+      // Delete in correct order (child to parent) to respect FK constraints
+      const responseCount = await trx('response').where('assessment_id', assessmentId).del();
+      logger.info(`Deleted ${responseCount} responses`);
+
+      const picCount = await trx('pic_map').where('assessment_id', assessmentId).del();
+      logger.info(`Deleted ${picCount} pic_maps`);
+
+      const factorCount = await trx('factor').where('assessment_id', assessmentId).del();
+      logger.info(`Deleted ${factorCount} factors`);
+
+      const parameterCount = await trx('parameter').where('assessment_id', assessmentId).del();
+      logger.info(`Deleted ${parameterCount} parameters`);
+
+      const aspectCount = await trx('aspect').where('assessment_id', assessmentId).del();
+      logger.info(`Deleted ${aspectCount} aspects`);
+
+      const kkaCount = await trx('kka').where('assessment_id', assessmentId).del();
+      logger.info(`Deleted ${kkaCount} kkas`);
+
+      logger.info('Inserting new hierarchy data...');
+      const hierarchy = await this._persistHierarchyForUpdate(trx, assessmentId, payload.kkas || [], userId);
 
       await trx.commit();
-      logger.info(`Manual assessment ${assessmentId} updated by ${userId}`);
+      logger.info(`Manual assessment ${assessmentId} updated successfully by ${userId}`);
+
+      // Auto-save to master data if status is 'selesai'
+      if (payload.status === 'selesai') {
+        setImmediate(async () => {
+          try {
+            await this.autoSaveToMasterDataSK16(assessmentId);
+          } catch (error) {
+            logger.error('Failed to auto-save SK16 to master data (non-blocking):', error);
+          }
+        });
+      }
 
       return { hierarchy };
     } catch (error) {
@@ -304,6 +332,130 @@ class ManualAssessmentService {
       logger.error('Error in updateManualAssessment service:', error);
       throw error;
     }
+  }
+
+  // Separate method for update that ALWAYS generates new IDs
+  async _persistHierarchyForUpdate(trx, assessmentId, kkaData, userId) {
+    const hierarchyIds = {
+      kka: {},
+      aspect: {},
+      parameter: {},
+      factor: {}
+    };
+
+    // Track used kode values to ensure uniqueness within the assessment
+    const usedKodes = new Set();
+
+    for (const kka of kkaData) {
+      // ALWAYS generate new ID for update to avoid conflicts
+      const kkaId = uuidv4();
+      const oldKkaId = kka.id;
+      hierarchyIds.kka[oldKkaId] = { clientId: oldKkaId, dbId: kkaId };
+
+      // Ensure unique kode value
+      let kode = kka.kode || 'KKA-' + kkaId.substring(0, 8);
+      let suffix = 0;
+      const baseKode = kode;
+      while (usedKodes.has(kode)) {
+        suffix++;
+        kode = `${baseKode}-${suffix}`;
+      }
+      usedKodes.add(kode);
+
+      await trx('kka').insert({
+        id: kkaId,
+        assessment_id: assessmentId,
+        kode: kode,
+        nama: kka.nama || 'Unnamed KKA',
+        deskripsi: kka.deskripsi || null,
+        weight: kka.weight || null,
+        sort: kka.sort || 0,
+        is_active: true,
+        created_at: new Date(),
+        updated_at: new Date()
+      });
+
+      for (const aspect of kka.aspects || []) {
+        const aspectId = uuidv4();
+        const oldAspectId = aspect.id;
+        hierarchyIds.aspect[oldAspectId] = { clientId: oldAspectId, dbId: aspectId };
+
+        await trx('aspect').insert({
+          id: aspectId,
+          assessment_id: assessmentId,
+          kka_id: kkaId,
+          kode: aspect.kode || 'ASP-' + aspectId.substring(0, 8),
+          nama: aspect.nama || 'Unnamed Aspect',
+          weight: aspect.weight || 1,
+          sort: aspect.sort || 0,
+          is_active: true,
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+
+        for (const parameter of aspect.parameters || []) {
+          const parameterId = uuidv4();
+          const oldParameterId = parameter.id;
+          hierarchyIds.parameter[oldParameterId] = { clientId: oldParameterId, dbId: parameterId };
+
+          await trx('parameter').insert({
+            id: parameterId,
+            assessment_id: assessmentId,
+            kka_id: kkaId,
+            aspect_id: aspectId,
+            kode: parameter.kode || 'PAR-' + parameterId.substring(0, 8),
+            nama: parameter.nama || 'Unnamed Parameter',
+            weight: parameter.weight || 1,
+            sort: parameter.sort || 0,
+            is_active: true,
+            created_at: new Date(),
+            updated_at: new Date()
+          });
+
+          for (const factor of parameter.factors || []) {
+            const factorId = uuidv4();
+            const oldFactorId = factor.id;
+            hierarchyIds.factor[oldFactorId] = {
+              clientId: oldFactorId,
+              dbId: factorId,
+              unit_bidang_id: factor.pic_unit_bidang_id || null,
+              pic_user_id: factor.pic_user_id || null
+            };
+
+            const hierarchicalKode = `${kka.kode || '1'}-${aspect.kode || '1'}-${parameter.kode || '1'}-${factor.kode || '1'}`;
+
+            await trx('factor').insert({
+              id: factorId,
+              assessment_id: assessmentId,
+              kka_id: kkaId,
+              aspect_id: aspectId,
+              parameter_id: parameterId,
+              kode: factor.kode || hierarchicalKode,
+              nama: factor.nama || 'Unnamed Factor',
+              max_score: factor.max_score || 1,
+              sort: factor.sort || 0,
+              is_active: true,
+              created_at: new Date(),
+              updated_at: new Date()
+            });
+
+            // Insert PIC mapping if pic_unit_bidang_id exists
+            if (factor.pic_unit_bidang_id) {
+              await trx('pic_map').insert({
+                id: uuidv4(),
+                assessment_id: assessmentId,
+                target_type: 'factor',
+                target_id: factorId,
+                unit_bidang_id: factor.pic_unit_bidang_id,
+                created_at: new Date()
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return hierarchyIds;
   }
 
   async getManualAssessmentStructure(assessmentId) {
@@ -547,6 +699,187 @@ class ManualAssessmentService {
         hasEvidence: Boolean(evidenceMap[factorId]),
         allowed: allowedFactorIds.has(factorId)
       }));
+  }
+
+  /**
+   * Auto-save SK16 assessment to master data when status is 'selesai'
+   * @param {string} assessmentId - Assessment ID
+   */
+  async autoSaveToMasterDataSK16(assessmentId) {
+    try {
+      const { db } = require('../../config/database');
+
+      // Get assessment
+      const assessment = await db('assessment')
+        .where('id', assessmentId)
+        .whereNull('deleted_at')
+        .first();
+
+      if (!assessment) {
+        logger.info('Assessment not found for auto-save');
+        return;
+      }
+
+      // Only save if status is 'selesai' and assessment_type is 'SK16'
+      // and notes does NOT have [SK16] prefix (not already master data)
+      if (assessment.status !== 'selesai' ||
+          assessment.assessment_type !== 'SK16' ||
+          (assessment.notes && assessment.notes.startsWith('[SK16]'))) {
+        logger.info('Assessment does not meet criteria for auto-save');
+        return;
+      }
+
+      // Get full assessment structure
+      const fullData = await this.getManualAssessmentStructure(assessmentId);
+
+      // Check if 100% similar master data already exists
+      const similarMasterData = await this.find100PercentSimilarSK16MasterData(fullData);
+
+      if (similarMasterData) {
+        logger.info(`100% similar SK16 master data already exists: ${similarMasterData.title} (ID: ${similarMasterData.id})`);
+        return;
+      }
+
+      if (!fullData || !fullData.kkas || fullData.kkas.length === 0) {
+        logger.info('No KKA structure to save to master data');
+        return;
+      }
+
+      // Create master data via SK16 service
+      const sk16Service = require('../master-data/sk16.service');
+
+      // Transform assessment hierarchy to SK16 master data format
+      const masterDataPayload = {
+        organization_name: assessment.title,
+        assessment_date: assessment.assessment_date,
+        hierarchy: fullData.kkas.map(kka => ({
+          kode: kka.kode,
+          nama: kka.nama,
+          deskripsi: kka.deskripsi,
+          weight: kka.weight,
+          sort: kka.sort || 0,
+          aspects: (kka.aspects || []).map(aspect => ({
+            kode: aspect.kode,
+            nama: aspect.nama,
+            weight: aspect.weight,
+            sort: aspect.sort || 0,
+            parameters: (aspect.parameters || []).map(param => ({
+              kode: param.kode,
+              nama: param.nama,
+              weight: param.weight,
+              sort: param.sort || 0,
+              factors: (param.factors || []).map(factor => ({
+                kode: factor.kode,
+                nama: factor.nama,
+                deskripsi: factor.deskripsi,
+                weight: factor.weight,
+                max_score: factor.max_score,
+                score: null, // Clear scores for master data
+                pic_unit_bidang_id: null, // Clear PIC for master data
+                sort: factor.sort || 0
+              }))
+            }))
+          }))
+        }))
+      };
+
+      await sk16Service.createSK16Assessment(masterDataPayload, assessment.assessor_id);
+      logger.info(`✅ Auto-saved SK16 assessment to master data: ${assessment.title}`);
+
+    } catch (error) {
+      logger.error('Failed to auto-save SK16 to master data:', error);
+      // Non-blocking, don't throw
+    }
+  }
+
+  /**
+   * Find 100% similar SK16 master data based on KKA structure comparison
+   * @param {Object} assessmentData - Full assessment data with kkas
+   * @returns {Object|null} - Similar master data or null if not found
+   */
+  async find100PercentSimilarSK16MasterData(assessmentData) {
+    try {
+      const { db } = require('../../config/database');
+
+      // Get all SK16 master data with same title as candidates
+      const candidates = await db('assessment')
+        .where('title', assessmentData.assessment.title)
+        .where('assessment_type', 'SK16')
+        .where('notes', 'like', '[SK16]%')
+        .whereNull('deleted_at');
+
+      // Check each candidate for 100% structural similarity
+      for (const candidate of candidates) {
+        const candidateData = await this.getManualAssessmentStructure(candidate.id);
+
+        if (this.isKKAStructure100PercentSimilar(assessmentData.kkas, candidateData.kkas)) {
+          return candidate;
+        }
+      }
+
+      return null;
+    } catch (error) {
+      logger.error('Error finding similar SK16 master data:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Compare two SK16 KKA structures for 100% similarity
+   * @param {Array} kkas1 - First KKA array
+   * @param {Array} kkas2 - Second KKA array
+   * @returns {boolean} - True if 100% similar
+   */
+  isKKAStructure100PercentSimilar(kkas1, kkas2) {
+    if (!kkas1 || !kkas2) return false;
+    if (kkas1.length !== kkas2.length) return false;
+
+    for (let i = 0; i < kkas1.length; i++) {
+      const k1 = kkas1[i];
+      const k2 = kkas2[i];
+
+      // Compare KKA kode + nama
+      if (k1.kode !== k2.kode || k1.nama !== k2.nama) return false;
+
+      // Compare aspects
+      if (!k1.aspects || !k2.aspects) return false;
+      if (k1.aspects.length !== k2.aspects.length) return false;
+
+      for (let j = 0; j < k1.aspects.length; j++) {
+        const a1 = k1.aspects[j];
+        const a2 = k2.aspects[j];
+
+        // Compare aspect kode + nama
+        if (a1.kode !== a2.kode || a1.nama !== a2.nama) return false;
+
+        // Compare parameters
+        if (!a1.parameters || !a2.parameters) return false;
+        if (a1.parameters.length !== a2.parameters.length) return false;
+
+        for (let k = 0; k < a1.parameters.length; k++) {
+          const p1 = a1.parameters[k];
+          const p2 = a2.parameters[k];
+
+          // Compare parameter kode + nama
+          if (p1.kode !== p2.kode || p1.nama !== p2.nama) return false;
+
+          // Compare factors
+          if (!p1.factors || !p2.factors) return false;
+          if (p1.factors.length !== p2.factors.length) return false;
+
+          for (let l = 0; l < p1.factors.length; l++) {
+            const f1 = p1.factors[l];
+            const f2 = p2.factors[l];
+
+            // Compare factor kode + nama
+            if (f1.kode !== f2.kode || f1.nama !== f2.nama) return false;
+          }
+        }
+      }
+    }
+
+    // All structure matches 100%
+    return true;
   }
 }
 
