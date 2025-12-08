@@ -277,6 +277,7 @@ class ManualAssessmentService {
 
     try {
       logger.info(`Updating manual assessment ${assessmentId}`);
+      logger.info(`Setting updated_by to userId: ${userId}`);
 
       await trx('assessment')
         .where('id', assessmentId)
@@ -286,7 +287,10 @@ class ManualAssessmentService {
           assessment_date: payload.assessment_date,
           status: payload.status || 'draft',
           updated_at: new Date(),
+          updated_by: userId,
         });
+      
+      logger.info(`Assessment ${assessmentId} updated_by set to: ${userId}`);
 
       logger.info('Deleting old hierarchy data...');
 

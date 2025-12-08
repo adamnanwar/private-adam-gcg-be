@@ -33,7 +33,8 @@ class AcgsRepository {
 
     let query = this.db('acgs_assessment as aa')
       .leftJoin('users as u', 'aa.created_by', 'u.id')
-      .select('aa.*', 'u.name as created_by_name')
+      .leftJoin('users as updater', 'aa.updated_by', 'updater.id')
+      .select('aa.*', 'u.name as created_by_name', 'updater.name as updated_by_name')
       .whereNull('aa.deleted_at')
       .where('aa.is_master_data', false); // Only show actual assessments, not master data
 
@@ -69,7 +70,8 @@ class AcgsRepository {
 
     let query = this.db('acgs_assessment as aa')
       .leftJoin('users as u', 'aa.created_by', 'u.id')
-      .select('aa.*', 'u.name as created_by_name')
+      .leftJoin('users as updater', 'aa.updated_by', 'updater.id')
+      .select('aa.*', 'u.name as created_by_name', 'updater.name as updated_by_name')
       .whereNull('aa.deleted_at')
       .where('aa.is_master_data', true); // Only show master data
 

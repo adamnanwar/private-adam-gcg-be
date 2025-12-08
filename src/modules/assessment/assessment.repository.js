@@ -14,9 +14,11 @@ class AssessmentRepository {
         .select(
           'assessment.*',
           'users.name as assessor_name',
-          'users.email as assessor_email'
+          'users.email as assessor_email',
+          'updater.name as updated_by_name'
         )
         .leftJoin('users', 'assessment.assessor_id', 'users.id')
+        .leftJoin('users as updater', 'assessment.updated_by', 'updater.id')
         .whereNull('assessment.deleted_at');  // Exclude soft deleted assessments
 
       // Filter based on includeMasterData parameter

@@ -9,9 +9,11 @@ class AOIMonitoringService {
     try {
       const db = getConnection();
       let query = db('aoi_monitoring')
-        .select('*')
+        .leftJoin('users as creator', 'aoi_monitoring.created_by', 'creator.id')
+        .leftJoin('users as updater', 'aoi_monitoring.updated_by', 'updater.id')
+        .select('aoi_monitoring.*', 'creator.name as created_by_name', 'updater.name as updated_by_name')
         .where('assessment_type', assessmentType)
-        .whereNull('deleted_at');
+        .whereNull('aoi_monitoring.deleted_at');
 
       // Apply filters
       if (filters.search) {
@@ -219,7 +221,8 @@ class AOIMonitoringService {
           year: data.year !== undefined ? data.year : existing.year,
           status: data.status !== undefined ? data.status : existing.status,
           notes: data.notes !== undefined ? data.notes : existing.notes,
-          updated_at: now
+          updated_at: now,
+          updated_by: userId
         });
 
       // Update recommendations if provided - use upsert pattern to preserve IDs

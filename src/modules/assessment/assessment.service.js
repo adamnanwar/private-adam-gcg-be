@@ -99,7 +99,7 @@ class AssessmentService {
         throw new Error('Only admins can set assessment status to completed or reviewed');
       }
 
-      const assessment = await this.repository.updateAssessment(id, assessmentData);
+      const assessment = await this.repository.updateAssessment(id, { ...assessmentData, updated_by: userId });
       logger.info(`Assessment updated: ${id} by user: ${userId}`);
       return assessment;
     } catch (error) {

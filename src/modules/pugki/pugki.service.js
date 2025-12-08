@@ -324,7 +324,8 @@ class PugkiService {
           unit_bidang_id: data.unit_bidang_id || null,
           status: data.status,
           notes: data.notes || '',
-          updated_at: new Date()
+          updated_at: new Date(),
+          updated_by: userId
         });
 
       // Delete existing hierarchy

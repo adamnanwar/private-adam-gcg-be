@@ -60,9 +60,11 @@ class PugkiRepository {
 
     let query = this.db('pugki_assessment as pa')
       .leftJoin('users as u', 'pa.created_by', 'u.id')
+      .leftJoin('users as updater', 'pa.updated_by', 'updater.id')
       .select(
         'pa.*',
-        'u.name as created_by_name'
+        'u.name as created_by_name',
+        'updater.name as updated_by_name'
       )
       .whereNull('pa.deleted_at')
       .where('pa.is_master_data', false); // Only show actual assessments, not master data
@@ -107,9 +109,11 @@ class PugkiRepository {
 
     let query = this.db('pugki_assessment as pa')
       .leftJoin('users as u', 'pa.created_by', 'u.id')
+      .leftJoin('users as updater', 'pa.updated_by', 'updater.id')
       .select(
         'pa.*',
-        'u.name as created_by_name'
+        'u.name as created_by_name',
+        'updater.name as updated_by_name'
       )
       .whereNull('pa.deleted_at')
       .where('pa.is_master_data', true); // Only show master data
