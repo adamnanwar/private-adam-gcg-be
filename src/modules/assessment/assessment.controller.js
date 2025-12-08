@@ -976,31 +976,84 @@ class AssessmentController {
 
       logger.info(`Assessment ${assessmentId} approved with overall score: ${overallScore.toFixed(2)}`);
 
-      // Check AOI minimum score threshold
-      const aoiSetting = await db('settings')
-        .where('key', 'aoi_minimum_score')
+      // Auto-save to master data when assessment is completed (selesai)
+      // This creates a copy of the assessment structure as master data for future use
+      setImmediate(async () => {
+        try {
+          const manualAssessmentService = require('./manual-assessment.service');
+          await manualAssessmentService.autoSaveToMasterDataSK16(assessmentId);
+        } catch (autoSaveError) {
+          logger.error('Failed to auto-save SK16 to master data (non-blocking):', autoSaveError);
+        }
+      });
+
+      // Check AOI minimum score threshold from new aoi_settings table
+      const aoiSettings = await db('aoi_settings')
+        .where('assessment_type', 'SK16')
         .first();
 
-      const minimumScore = aoiSetting ? parseFloat(aoiSetting.value) : 0.75;
+      const minimumScore = aoiSettings ? parseFloat(aoiSettings.min_score_threshold) / 100 : 0.80;
+      const autoGenerateEnabled = aoiSettings ? aoiSettings.auto_generate_enabled : true;
 
-      // Auto-create AOI if overall score < minimum
-      if (overallScore < minimumScore) {
+      // Auto-create AOI if overall score < minimum threshold AND auto-generate is enabled
+      if (autoGenerateEnabled && overallScore < minimumScore) {
         logger.info(`Overall score ${overallScore.toFixed(2)} is below minimum ${minimumScore.toFixed(2)}, creating AOI...`);
 
         const aoiId = randomUUID();
-        await db('aoi').insert({
+        const currentYear = new Date().getFullYear();
+        const now = new Date();
+
+        await db('aoi_monitoring').insert({
           id: aoiId,
-          assessment_id: assessmentId,
-          nama: `AOI - ${assessment.title}`,
-          recommendation: `Assessment score (${(overallScore * 100).toFixed(0)}%) is below threshold (${(minimumScore * 100).toFixed(0)}%). Requires improvement action.`,
-          status: 'open',
-          priority: overallScore < 0.5 ? 'high' : 'medium',
+          assessment_type: 'SK16',
+          title: `AOI - ${assessment.title}`,
+          year: currentYear,
+          status: 'draft',
+          notes: `Auto-generated: Assessment score (${(overallScore * 100).toFixed(1)}%) is below threshold (${(minimumScore * 100).toFixed(0)}%). Requires improvement actions.`,
           created_by: userId,
-          created_at: new Date(),
-          updated_at: new Date()
+          created_at: now,
+          updated_at: now
         });
 
-        logger.info(`AOI ${aoiId} created automatically for assessment ${assessmentId}`);
+        // Generate recommendations from factors with low scores
+        const factorsWithScores = await db('factor')
+          .leftJoin('response', function() {
+            this.on('factor.id', '=', 'response.factor_id')
+              .andOn('response.assessment_id', '=', db.raw('?', [assessmentId]));
+          })
+          .where('factor.assessment_id', assessmentId)
+          .select(
+            'factor.id as factor_id',
+            'factor.kode',
+            'factor.nama',
+            'factor.deskripsi',
+            'factor.max_score',
+            'response.score'
+          );
+
+        const lowScoreFactors = factorsWithScores.filter(f => {
+          const maxScore = parseFloat(f.max_score || 1);
+          const score = parseFloat(f.score || 0);
+          const scorePercent = maxScore > 0 ? score / maxScore : 0;
+          return scorePercent < minimumScore;
+        });
+
+        if (lowScoreFactors.length > 0) {
+          const recommendations = lowScoreFactors.map((factor, index) => ({
+            id: randomUUID(),
+            aoi_monitoring_id: aoiId,
+            nomor_indikator: factor.kode || `Faktor ${index + 1}`,
+            rekomendasi: `Perbaikan diperlukan untuk: ${factor.nama || factor.deskripsi || 'Faktor dengan skor rendah'}`,
+            sort: index,
+            created_at: now,
+            updated_at: now
+          }));
+
+          await db('aoi_monitoring_recommendation').insert(recommendations);
+          logger.info(`Created ${recommendations.length} recommendations for AOI ${aoiId}`);
+        }
+
+        logger.info(`AOI ${aoiId} created automatically for SK16 assessment ${assessmentId}`);
 
         return res.json(successResponse({
           assessmentId,

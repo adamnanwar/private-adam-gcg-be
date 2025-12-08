@@ -93,6 +93,7 @@ class PugkiController {
         assessment_id: Joi.string().uuid().optional(),
         title: Joi.string().required(),
         assessment_year: Joi.number().integer().required(),
+        unit_bidang_id: Joi.string().uuid().allow(null).optional(),
         status: Joi.string().valid('draft', 'in_progress', 'proses_tindak_lanjut', 'verifikasi', 'selesai', 'selesai_berkelanjutan').default('draft'),
         notes: Joi.string().allow('').optional(),
         is_master_data: Joi.boolean().optional().default(false),
@@ -165,6 +166,19 @@ class PugkiController {
       res.json({ success: true, data: result });
     } catch (error) {
       console.error('Error saving responses:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  // Submit tindak lanjut
+  async submitTindakLanjut(req, res) {
+    try {
+      const { id } = req.params;
+      const userId = req.user.id;
+      const result = await this.service.submitTindakLanjut(id, userId);
+      res.json({ success: true, data: result, message: 'PUGKI assessment submitted for verification' });
+    } catch (error) {
+      console.error('Error submitting tindak lanjut:', error);
       res.status(500).json({ success: false, error: error.message });
     }
   }

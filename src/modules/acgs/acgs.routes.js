@@ -27,6 +27,9 @@ module.exports = function(db) {
   router.put('/assessments/:id', requireRole(['admin', 'assessor']), controller.updateAssessment.bind(controller));
   router.delete('/assessments/:id', requireRole(['admin']), controller.deleteAssessment.bind(controller));
 
+  // Tindak Lanjut Submit
+  router.post('/assessments/:id/submit', requireRole(['admin', 'assessor', 'user']), controller.submitTindakLanjut.bind(controller));
+
   // Responses
   router.post('/assessments/:id/responses', requireRole(['admin', 'assessor', 'user']), controller.saveResponses.bind(controller));
 

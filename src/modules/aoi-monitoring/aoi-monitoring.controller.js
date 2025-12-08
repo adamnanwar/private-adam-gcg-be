@@ -5,6 +5,7 @@ const logger = require('../../utils/logger');
 
 // Validation schemas
 const recommendationSchema = Joi.object({
+  id: Joi.string().uuid().allow(null, ''),  // Allow id for update operations
   section: Joi.string().allow(null, ''),
   no: Joi.string().allow(null, ''),
   nomor_indikator: Joi.string().allow(null, ''),
@@ -12,14 +13,15 @@ const recommendationSchema = Joi.object({
   tindaklanjut_1: Joi.string().allow(null, ''),
   tindaklanjut_2: Joi.string().allow(null, ''),
   pic: Joi.string().allow(null, ''),
-  sort: Joi.number().integer().min(0)
+  sort: Joi.number().integer().min(0),
+  evidence: Joi.any()  // Allow evidence array from frontend (ignored in service)
 });
 
 const createAOISchema = Joi.object({
   assessment_type: Joi.string().valid('SK16', 'PUGKI', 'ACGS').required(),
   title: Joi.string().required().min(3).max(500),
   year: Joi.number().integer().min(2000).max(2100),
-  status: Joi.string().valid('draft', 'published', 'archived'),
+  status: Joi.string().valid('draft', 'in_progress', 'proses_tindak_lanjut', 'verifikasi', 'selesai', 'published', 'archived'),
   notes: Joi.string().allow(null, ''),
   recommendations: Joi.array().items(recommendationSchema)
 });
@@ -27,7 +29,7 @@ const createAOISchema = Joi.object({
 const updateAOISchema = Joi.object({
   title: Joi.string().min(3).max(500),
   year: Joi.number().integer().min(2000).max(2100),
-  status: Joi.string().valid('draft', 'published', 'archived'),
+  status: Joi.string().valid('draft', 'in_progress', 'proses_tindak_lanjut', 'verifikasi', 'selesai', 'published', 'archived'),
   notes: Joi.string().allow(null, ''),
   recommendations: Joi.array().items(recommendationSchema)
 });
@@ -177,6 +179,59 @@ class AOIMonitoringController {
       res.status(500).json(errorResponse('Failed to retrieve statistics', 'INTERNAL_ERROR'));
     }
   }
+
+  /**
+   * Get settings by assessment type
+   */
+  async getSettings(req, res) {
+    try {
+      const { assessmentType } = req.params;
+
+      // Validate assessment type
+      if (!['SK16', 'PUGKI', 'ACGS'].includes(assessmentType.toUpperCase())) {
+        return res.status(400).json(errorResponse('Invalid assessment type', 'INVALID_TYPE'));
+      }
+
+      const settings = await aoiMonitoringService.getSettings(assessmentType.toUpperCase());
+
+      res.json(successResponse(settings, 'Settings retrieved successfully'));
+    } catch (error) {
+      logger.error(`Error in getSettings controller (${req.params.assessmentType}):`, error);
+      res.status(500).json(errorResponse('Failed to retrieve settings', 'INTERNAL_ERROR'));
+    }
+  }
+
+  /**
+   * Update settings by assessment type
+   */
+  async updateSettings(req, res) {
+    try {
+      const { assessmentType } = req.params;
+      const { min_score_threshold, auto_generate_enabled } = req.body;
+
+      // Validate assessment type
+      if (!['SK16', 'PUGKI', 'ACGS'].includes(assessmentType.toUpperCase())) {
+        return res.status(400).json(errorResponse('Invalid assessment type', 'INVALID_TYPE'));
+      }
+
+      // Validate threshold
+      if (min_score_threshold !== undefined) {
+        if (typeof min_score_threshold !== 'number' || min_score_threshold < 0 || min_score_threshold > 100) {
+          return res.status(400).json(errorResponse('min_score_threshold must be between 0 and 100', 'INVALID_INPUT'));
+        }
+      }
+
+      const settings = await aoiMonitoringService.updateSettings(
+        assessmentType.toUpperCase(),
+        { min_score_threshold, auto_generate_enabled }
+      );
+
+      res.json(successResponse(settings, 'Settings updated successfully'));
+    } catch (error) {
+      logger.error(`Error in updateSettings controller (${req.params.assessmentType}):`, error);
+      res.status(500).json(errorResponse('Failed to update settings', 'INTERNAL_ERROR'));
+    }
+  }
 }
 
 const aoiMonitoringController = new AOIMonitoringController();
@@ -187,5 +242,7 @@ module.exports = {
   create: aoiMonitoringController.create.bind(aoiMonitoringController),
   update: aoiMonitoringController.update.bind(aoiMonitoringController),
   delete: aoiMonitoringController.delete.bind(aoiMonitoringController),
-  getStatsByType: aoiMonitoringController.getStatsByType.bind(aoiMonitoringController)
+  getStatsByType: aoiMonitoringController.getStatsByType.bind(aoiMonitoringController),
+  getSettings: aoiMonitoringController.getSettings.bind(aoiMonitoringController),
+  updateSettings: aoiMonitoringController.updateSettings.bind(aoiMonitoringController)
 };

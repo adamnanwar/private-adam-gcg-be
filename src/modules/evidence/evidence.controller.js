@@ -11,11 +11,11 @@ const uploadEvidenceSchema = Joi.object({
 });
 
 const uploadEvidenceGenericSchema = Joi.object({
-  target_type: Joi.string().valid('factor', 'parameter', 'aoi').required(),
+  target_type: Joi.string().valid('factor', 'parameter', 'aoi', 'pugki_rekomendasi', 'acgs_question', 'aoi_recommendation').required(),
   target_id: Joi.string().uuid().required(),
   assessment_id: Joi.string().uuid().required(),  // REQUIRED for linking evidence
   note: Joi.string().optional().max(500).allow('')
-});
+}).unknown(true); // Allow unknown fields like 'file' which is handled by multer
 
 // Simple file upload schema (for form fields like referensi)
 const simpleUploadSchema = Joi.object({

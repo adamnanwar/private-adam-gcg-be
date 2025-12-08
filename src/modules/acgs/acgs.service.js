@@ -80,7 +80,8 @@ class AcgsService {
         'acgs_question.referensi_panduan',
         'acgs_question.implementasi_bukti',
         'acgs_question.link_dokumen',
-        'acgs_question.comment'
+        'acgs_question.comment',
+        'acgs_question.pic_unit_bidang_id'
       )
       .where('acgs_section.acgs_assessment_id', assessmentId)
       .leftJoin('acgs_parameter', 'acgs_parameter.acgs_section_id', 'acgs_section.id')
@@ -140,8 +141,60 @@ class AcgsService {
             implementasi_bukti: row.implementasi_bukti || '',
             link_dokumen: row.link_dokumen || '',
             comment: row.comment || '',
+            pic_unit_bidang_id: row.pic_unit_bidang_id || null,
             sort: row.question_sort
           });
+        }
+      }
+    }
+
+    // Fetch evidence for all questions
+    const questionIds = [];
+    for (const section of Object.values(sectionMap)) {
+      for (const parameter of section.parameters) {
+        for (const question of parameter.questions) {
+          questionIds.push(question.id);
+        }
+      }
+    }
+
+    // Get evidence for these questions
+    // Note: target_type is mapped from 'acgs_question' to 'aoi' by evidence service
+    const evidenceList = questionIds.length > 0
+      ? await db('evidence')
+          .select('evidence.*')
+          .whereIn('evidence.target_id', questionIds)
+          .where(function() {
+            // Accept both mapped value ('aoi') and original value ('acgs_question')
+            this.where('evidence.target_type', 'aoi')
+                .orWhere('evidence.target_type', 'acgs_question');
+          })
+          .orderBy('evidence.created_at', 'desc')
+      : [];
+
+    // Create a map of question_id -> evidence array
+    const evidenceMap = {};
+    for (const ev of evidenceList) {
+      if (!evidenceMap[ev.target_id]) {
+        evidenceMap[ev.target_id] = [];
+      }
+      evidenceMap[ev.target_id].push({
+        id: ev.id,
+        // Support both old schema (original_name) and new schema (original_filename, filename)
+        file_name: ev.original_filename || ev.filename || ev.original_name || ev.file_name || 'Unknown',
+        file_path: ev.file_path || ev.uri,
+        file_type: ev.mime_type || ev.file_type,
+        file_size: ev.file_size,
+        note: ev.note,
+        uploaded_at: ev.created_at
+      });
+    }
+
+    // Attach evidence to questions
+    for (const section of Object.values(sectionMap)) {
+      for (const parameter of section.parameters) {
+        for (const question of parameter.questions) {
+          question.evidence = evidenceMap[question.id] || [];
         }
       }
     }
@@ -167,16 +220,17 @@ class AcgsService {
         )
       );
 
-      // Set status to in_progress if PICs are assigned, otherwise use provided status or draft
+      // Always set status to in_progress for new assessments (master data uses 'selesai')
       const initialStatus = data.is_master_data
         ? 'selesai'
-        : (hasPICAssignments ? 'in_progress' : (data.status || 'draft'));
+        : 'in_progress';
 
       // Create assessment
       await trx('acgs_assessment').insert({
         id: assessmentId,
         title: data.title,
         assessment_year: data.assessment_year,
+        unit_bidang_id: data.unit_bidang_id || null,
         status: initialStatus,
         notes: data.notes || '',
         is_master_data: data.is_master_data || false,
@@ -394,6 +448,7 @@ class AcgsService {
         .update({
           title: data.title,
           assessment_year: data.assessment_year,
+          unit_bidang_id: data.unit_bidang_id || null,
           status: data.status,
           notes: data.notes || '',
           updated_at: new Date()
@@ -416,6 +471,17 @@ class AcgsService {
             await this.autoSaveToMasterData(id);
           } catch (error) {
             console.error('Failed to auto-save to master data (non-blocking):', error);
+          }
+        });
+      }
+
+      // Auto-generate AOI if status is 'selesai' and score below threshold
+      if (data.status === 'selesai') {
+        setImmediate(async () => {
+          try {
+            await this.autoGenerateAOI(id);
+          } catch (error) {
+            console.error('Failed to auto-generate AOI (non-blocking):', error);
           }
         });
       }
@@ -521,6 +587,101 @@ class AcgsService {
       }
     } catch (error) {
       console.error('Failed to auto-save to master data:', error);
+      // Non-blocking, don't throw
+    }
+  }
+
+  async autoGenerateAOI(assessmentId) {
+    try {
+      const { db } = require('../../config/database');
+      const { v4: uuidv4 } = require('uuid');
+
+      // Get assessment with overall score
+      const assessment = await db('acgs_assessment')
+        .where('id', assessmentId)
+        .whereNull('deleted_at')
+        .first();
+
+      if (!assessment) {
+        console.log('Assessment not found for auto-generate AOI');
+        return;
+      }
+
+      // Only auto-generate if status is 'selesai' and NOT master data
+      if (assessment.status !== 'selesai' || assessment.is_master_data) {
+        console.log('Assessment does not meet criteria for auto-generate AOI');
+        return;
+      }
+
+      // Get AOI settings for ACGS
+      const aoiSettings = await db('aoi_settings')
+        .where('assessment_type', 'ACGS')
+        .first();
+
+      const minimumScore = aoiSettings ? parseFloat(aoiSettings.min_score_threshold) / 100 : 0.80;
+      const autoGenerateEnabled = aoiSettings ? aoiSettings.auto_generate_enabled : true;
+
+      const overallScore = assessment.overall_score || 0;
+
+      // Check if score is below threshold and auto-generate is enabled
+      if (autoGenerateEnabled && overallScore < minimumScore) {
+        console.log(`Overall score ${overallScore.toFixed(2)} is below minimum ${minimumScore.toFixed(2)}, creating ACGS AOI...`);
+
+        const aoiId = uuidv4();
+        const now = new Date();
+
+        await db('aoi_monitoring').insert({
+          id: aoiId,
+          assessment_type: 'ACGS',
+          title: `AOI - ${assessment.title}`,
+          year: assessment.assessment_year || new Date().getFullYear(),
+          status: 'draft',
+          notes: `Auto-generated: Assessment score (${(overallScore * 100).toFixed(1)}%) is below threshold (${(minimumScore * 100).toFixed(0)}%). Requires improvement actions.`,
+          created_by: assessment.assessor_id,
+          created_at: now,
+          updated_at: now
+        });
+
+        // Generate recommendations from questions with 'No' answer
+        const questions = await db('acgs_question')
+          .leftJoin('acgs_parameter', 'acgs_question.acgs_parameter_id', 'acgs_parameter.id')
+          .leftJoin('acgs_section', 'acgs_question.acgs_section_id', 'acgs_section.id')
+          .where('acgs_question.acgs_assessment_id', assessmentId)
+          .select(
+            'acgs_question.id',
+            'acgs_question.kode',
+            'acgs_question.nama',
+            'acgs_question.answer',
+            'acgs_question.score',
+            'acgs_parameter.nama as parameter_nama',
+            'acgs_section.nama as section_nama'
+          );
+
+        // Filter questions that need improvement (answer = 'No')
+        const needsImprovement = questions.filter(q => q.answer === 'No');
+
+        if (needsImprovement.length > 0) {
+          const recommendations = needsImprovement.map((item, index) => ({
+            id: uuidv4(),
+            aoi_monitoring_id: aoiId,
+            section: item.section_nama || null,
+            nomor_indikator: item.kode,
+            rekomendasi: `Perbaikan diperlukan untuk: ${item.nama} (${item.parameter_nama || 'Parameter'})`,
+            sort: index,
+            created_at: now,
+            updated_at: now
+          }));
+
+          await db('aoi_monitoring_recommendation').insert(recommendations);
+          console.log(`Created ${recommendations.length} recommendations for ACGS AOI ${aoiId}`);
+        }
+
+        console.log(`✅ AOI ${aoiId} created automatically for ACGS assessment ${assessmentId}`);
+      } else {
+        console.log(`Score ${overallScore.toFixed(2)} is above threshold ${minimumScore.toFixed(2)}, no AOI needed`);
+      }
+    } catch (error) {
+      console.error('Failed to auto-generate AOI:', error);
       // Non-blocking, don't throw
     }
   }
@@ -692,6 +853,45 @@ class AcgsService {
 
     // All structure matches 100%
     return true;
+  }
+
+  /**
+   * Submit tindak lanjut - changes status to verifikasi
+   */
+  async submitTindakLanjut(assessmentId, userId) {
+    const { db } = require('../../config/database');
+
+    try {
+      // Check if assessment exists
+      const assessment = await db('acgs_assessment')
+        .where('id', assessmentId)
+        .whereNull('deleted_at')
+        .first();
+
+      if (!assessment) {
+        throw new Error('Assessment not found');
+      }
+
+      // Validate status (must be in_progress or proses_tindak_lanjut)
+      if (assessment.status !== 'in_progress' && assessment.status !== 'proses_tindak_lanjut') {
+        throw new Error(`Cannot submit from status '${assessment.status}'`);
+      }
+
+      // Update status to verifikasi
+      await db('acgs_assessment')
+        .where('id', assessmentId)
+        .update({
+          status: 'verifikasi',
+          updated_at: new Date()
+        });
+
+      console.log(`✅ ACGS assessment ${assessmentId} submitted for verification by user ${userId}`);
+
+      return { assessmentId, status: 'verifikasi' };
+    } catch (error) {
+      console.error('Error submitting ACGS tindak lanjut:', error);
+      throw error;
+    }
   }
 }
 

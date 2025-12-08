@@ -1,19 +1,21 @@
 const express = require('express');
 const router = express.Router();
 const aoiMonitoringController = require('./aoi-monitoring.controller');
-const { authenticate, authorize } = require('../../middleware/auth');
+const { authenticateToken, requireRole } = require('../../middlewares/auth');
 
 // All routes require authentication
-router.use(authenticate);
+router.use(authenticateToken);
 
 // Routes for specific assessment type
 router.get('/:assessmentType', aoiMonitoringController.getAllByType);
 router.get('/:assessmentType/stats', aoiMonitoringController.getStatsByType);
+router.get('/:assessmentType/settings', aoiMonitoringController.getSettings);
+router.put('/:assessmentType/settings', requireRole(['admin']), aoiMonitoringController.updateSettings);
 
 // CRUD routes
-router.post('/', authorize(['admin']), aoiMonitoringController.create);
+router.post('/', requireRole(['admin']), aoiMonitoringController.create);
 router.get('/detail/:id', aoiMonitoringController.getById);
-router.put('/:id', authorize(['admin']), aoiMonitoringController.update);
-router.delete('/:id', authorize(['admin']), aoiMonitoringController.delete);
+router.put('/:id', requireRole(['admin']), aoiMonitoringController.update);
+router.delete('/:id', requireRole(['admin']), aoiMonitoringController.delete);
 
 module.exports = router;

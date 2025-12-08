@@ -35,10 +35,10 @@ class ManualAssessmentService {
         )
       );
 
-      // If PICs are assigned during creation, set status to in_progress
-      const initialStatus = hasPICAssignments
-        ? ASSESSMENT_STATUS.IN_PROGRESS
-        : (assessmentData.status || ASSESSMENT_STATUS.DRAFT);
+      // Always set status to in_progress for new assessments (master data uses 'selesai')
+      const initialStatus = assessmentData.is_master_data
+        ? ASSESSMENT_STATUS.SELESAI
+        : ASSESSMENT_STATUS.IN_PROGRESS;
 
       const assessment = {
         id: assessmentId,
@@ -559,12 +559,16 @@ class ManualAssessmentService {
                   });
 
                   // Get evidence for these factors
+                  // Note: target_type is mapped from 'factor' to 'assessment_factor' by evidence service
                   const evidenceList = factorIds.length > 0
                     ? await this.repository.db('evidence')
                         .select('evidence.*')
                         .whereIn('evidence.target_id', factorIds)
-                        .where('evidence.target_type', 'factor')  // Fixed: use 'factor' not 'kka'
-                        .where('evidence.assessment_id', assessmentId)
+                        .where(function() {
+                          // Accept both mapped value ('assessment_factor') and original value ('factor')
+                          this.where('evidence.target_type', 'assessment_factor')
+                              .orWhere('evidence.target_type', 'factor');
+                        })
                         .orderBy('evidence.created_at', 'desc')
                     : [];
 
@@ -680,11 +684,15 @@ class ManualAssessmentService {
       }
     });
 
+    // Note: target_type is mapped from 'factor' to 'assessment_factor' by evidence service
     const evidenceEntries = await this.repository.db('evidence')
       .select('target_id')
       .count({ total: '*' })
       .whereIn('target_id', factorIds)
-      .andWhere('target_type', 'factor')
+      .where(function() {
+        this.where('target_type', 'assessment_factor')
+            .orWhere('target_type', 'factor');
+      })
       .groupBy('target_id');
 
     const evidenceMap = evidenceEntries.reduce((acc, row) => {

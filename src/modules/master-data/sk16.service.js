@@ -280,9 +280,13 @@ class SK16Service {
 
     let evidenceMap = {};
     if (factorIds.length > 0) {
+      // Note: target_type is mapped from 'factor' to 'assessment_factor' by evidence service
       const allEvidence = await this.db('evidence')
         .select('*')
-        .where('target_type', 'factor')
+        .where(function() {
+          this.where('target_type', 'assessment_factor')
+              .orWhere('target_type', 'factor');
+        })
         .whereIn('target_id', factorIds);
 
       // Group evidence by factor_id
@@ -442,22 +446,20 @@ class SK16Service {
             console.log('[SK16Service] Inserting factor:', {
               kode: factor.kode,
               nama: factor.nama,
-              weight: factor.weight,
               max_score: factor.max_score,
               score: factor.score,
               pic_unit_bidang_id: factor.pic_unit_bidang_id
             });
 
-            await trx('factor').insert({ // Use 'factor' table instead of 'assessment_factor'
+            await trx('factor').insert({
               id: factorId,
               assessment_id: assessmentId,
-              kka_id: kkaId, // Add kka_id
-              aspect_id: aspectId, // Add aspect_id
-              parameter_id: parameterId, // Use 'parameter_id' instead of 'assessment_parameter_id'
+              kka_id: kkaId,
+              aspect_id: aspectId,
+              parameter_id: parameterId,
               kode: factor.kode,
               nama: factor.nama,
               deskripsi: factor.deskripsi || null,
-              weight: factor.weight || 1.00, // Store weight from Excel
               max_score: factor.max_score || 1,
               pic_unit_bidang_id: factor.pic_unit_bidang_id || null,
               sort: factor.sort || 0,

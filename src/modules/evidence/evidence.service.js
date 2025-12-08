@@ -42,6 +42,23 @@ class EvidenceService {
   constructor() {
     this.db = getConnection();
     this.upload = upload;
+    
+    // Mapping from new target_type values to database-compatible values
+    // Database CHECK constraint only allows: 'assessment_aspect', 'assessment_parameter', 'assessment_factor', 'aoi'
+    this.targetTypeMapping = {
+      'factor': 'assessment_factor',
+      'parameter': 'assessment_parameter',
+      'kka': 'assessment_factor',  // KKA relates to factors
+      'aoi': 'aoi',
+      'pugki_rekomendasi': 'aoi',  // AOI-related
+      'acgs_question': 'aoi',       // AOI-related
+      'aoi_recommendation': 'aoi'   // AOI-related
+    };
+  }
+  
+  // Map target_type to database-compatible value
+  mapTargetType(targetType) {
+    return this.targetTypeMapping[targetType] || targetType;
   }
 
   async uploadEvidenceGeneric(targetType, targetId, file, note, userId, assessmentId) {
@@ -66,43 +83,104 @@ class EvidenceService {
           target = await this.db('aoi').where('id', targetId).first();
           if (!target) throw new Error('AOI not found');
           break;
+        case 'pugki_rekomendasi':
+          target = await this.db('pugki_rekomendasi').where('id', targetId).first();
+          if (!target) throw new Error('PUGKI Rekomendasi not found');
+          break;
+        case 'acgs_question':
+          target = await this.db('acgs_question').where('id', targetId).first();
+          if (!target) throw new Error('ACGS Question not found');
+          break;
+        case 'aoi_recommendation':
+          target = await this.db('aoi_monitoring_recommendation').where('id', targetId).first();
+          if (!target) {
+            // Try to find by aoi_monitoring_id instead - maybe the recommendation doesn't exist yet
+            // but the AOI monitoring does. This handles legacy AOI records created without recommendations.
+            const aoiMonitoring = await this.db('aoi_monitoring').where('id', targetId).first();
+            if (aoiMonitoring) {
+              // AOI monitoring exists, allow upload to aoi type instead
+              logger.warn(`AOI Recommendation ${targetId} not found, but AOI Monitoring exists. Switching to aoi type.`);
+              targetType = 'aoi';
+              target = aoiMonitoring;
+            } else {
+              throw new Error('AOI Recommendation not found');
+            }
+          }
+          break;
         default:
           throw new Error('Invalid target type');
       }
 
-      // Create evidence record with correct database column names
-      // Based on actual table structure:
-      // - filename (stored filename)
-      // - original_filename (original file name)
-      // - file_path (path to file)
-      // - mime_type (file MIME type)
-      // - file_size (file size)
-      // - note (description/note)
-      // - uploaded_by (user ID)
-      // - assessment_id (REQUIRED for querying)
+      // Generate file URL path (relative to uploads folder)
+      const fileUrl = `/uploads/evidence/${file.filename}`;
+
+      // Detect which columns exist in the database and build evidence object accordingly
+      // This handles both old schema (uri, kind, original_name) and new schema (file_path, filename, etc.)
+      const evidenceId = randomUUID();
+      
+      // Map target_type to database-compatible value
+      const dbTargetType = this.mapTargetType(targetType);
+      logger.info(`Mapping target_type: ${targetType} -> ${dbTargetType}`);
+
+      // Build evidence object with ONLY columns that exist in the database
+      // Based on error logs, the actual schema has:
+      // - id, target_type, target_id, filename, original_filename, file_path
+      // - mime_type, file_size, note, uploaded_by, created_at, updated_at
+      // - assessment_id (with FK constraint to assessment table)
+      // Does NOT have: kind, uri, original_name
+      
       const evidence = {
-        id: randomUUID(),
-        target_type: targetType,  // Use actual target type (kka, aoi, or factor)
+        id: evidenceId,
+        target_type: dbTargetType,
         target_id: targetId,
-        assessment_id: assessmentId,          // CRITICAL: Link to assessment
-        filename: file.filename,              // Stored filename
-        original_filename: file.originalname, // Original filename
-        file_path: file.path,                 // File path
-        mime_type: file.mimetype,             // MIME type
-        file_size: file.size,                 // File size
-        note: note || '',                     // Note/description
-        uploaded_by: userId,                  // Uploader user ID
+        filename: file.filename,
+        original_filename: file.originalname,
+        file_path: fileUrl,
+        mime_type: file.mimetype,
+        file_size: file.size,
+        note: note || '',
+        uploaded_by: userId,
         created_at: new Date(),
         updated_at: new Date()
       };
 
-      await this.db('evidence').insert(evidence);
-
-      logger.info(`📎 Evidence uploaded for ${targetType} ${targetId} by user ${userId}`);
-
-      return evidence;
+      // Try to insert with assessment_id first (for SK16 assessments which have valid FK)
+      // If FK constraint fails, try without assessment_id (for PUGKI/ACGS which use different tables)
+      console.log(`[EVIDENCE DEBUG] Saving evidence with:`, {
+        id: evidence.id,
+        target_type: evidence.target_type,
+        target_id: evidence.target_id,
+        filename: evidence.filename,
+        original_filename: evidence.original_filename
+      });
+      
+      try {
+        if (assessmentId) {
+          await this.db('evidence').insert({ ...evidence, assessment_id: assessmentId });
+          logger.info(`📎 Evidence uploaded (with assessment_id) for ${targetType} ${targetId} by user ${userId}`);
+          console.log(`[EVIDENCE DEBUG] Evidence saved successfully with ID: ${evidence.id}`);
+        } else {
+          await this.db('evidence').insert(evidence);
+          logger.info(`📎 Evidence uploaded (no assessment_id) for ${targetType} ${targetId} by user ${userId}`);
+        }
+        return { ...evidence, assessment_id: assessmentId, original_target_type: targetType };
+      } catch (insertError) {
+        // If FK constraint violation on assessment_id, try without it
+        if (insertError.message && insertError.message.includes('evidence_assessment_id_fkey')) {
+          logger.warn('FK constraint on assessment_id, trying without it:', insertError.message);
+          
+          await this.db('evidence').insert(evidence);
+          logger.info(`📎 Evidence uploaded (without assessment_id due to FK) for ${targetType} ${targetId} by user ${userId}`);
+          return { ...evidence, original_target_type: targetType };
+        }
+        
+        // If it's a column error, log and rethrow
+        logger.error('Insert failed:', insertError.message);
+        throw insertError;
+      }
     } catch (error) {
       logger.error('Error in uploadEvidenceGeneric:', error);
+      logger.error('Error details:', error.message, error.code, error.detail);
       throw error;
     }
   }
@@ -132,26 +210,43 @@ class EvidenceService {
         throw new Error('Assessment already completed; evidence changes are locked');
       }
 
-      // Create evidence record with correct database column names
+      // Generate file URL path
+      const fileUrl = `/uploads/evidence/${file.filename}`;
+      const evidenceId = randomUUID();
+      
+      // Use mapped target_type for database compatibility
+      const dbTargetType = this.mapTargetType('factor');  // Maps to 'assessment_factor'
+      
+      // Build evidence object - use ONLY columns that exist in database
       const evidence = {
-        id: randomUUID(),
-        target_type: 'kka',  // Use 'kka' instead of 'factor' for database constraint
+        id: evidenceId,
+        target_type: dbTargetType,
         target_id: assignment.factor_id,
-        filename: file.filename,              // Stored filename
-        original_filename: file.originalname, // Original filename
-        file_path: file.path,                 // File path
-        mime_type: file.mimetype,             // MIME type
-        file_size: file.size,                 // File size
-        note: note || '',                     // Note/description
-        uploaded_by: userId,                  // Uploader user ID
-        assessment_id: assignment.assessment_id, // Link to assessment
+        filename: file.filename,
+        original_filename: file.originalname,
+        file_path: fileUrl,
+        mime_type: file.mimetype,
+        file_size: file.size,
+        note: note || '',
+        uploaded_by: userId,
         created_at: new Date(),
         updated_at: new Date()
       };
 
-      await this.db('evidence').insert(evidence);
-
-      logger.info(`📎 Evidence uploaded for assignment ${assignmentId} by user ${userId}`);
+      // Try to insert with assessment_id first (SK16 assessments have valid FK)
+      try {
+        await this.db('evidence').insert({ ...evidence, assessment_id: assignment.assessment_id });
+        logger.info(`📎 Evidence uploaded (with assessment_id) for assignment ${assignmentId} by user ${userId}`);
+      } catch (insertError) {
+        // If FK constraint violation, try without assessment_id
+        if (insertError.message && insertError.message.includes('evidence_assessment_id_fkey')) {
+          logger.warn('FK constraint on assessment_id in uploadEvidence, trying without it');
+          await this.db('evidence').insert(evidence);
+          logger.info(`📎 Evidence uploaded (without assessment_id) for assignment ${assignmentId} by user ${userId}`);
+        } else {
+          throw insertError;
+        }
+      }
 
       return {
         ...evidence,

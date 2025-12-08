@@ -73,6 +73,7 @@ class PugkiService {
         'pugki_rekomendasi.referensi',
         'pugki_rekomendasi.score',
         'pugki_rekomendasi.comment',
+        'pugki_rekomendasi.pic_unit_bidang_id',
         'pugki_rekomendasi.sort as rekomendasi_sort'
       )
       .where('pugki_prinsip.pugki_assessment_id', assessmentId)
@@ -110,6 +111,7 @@ class PugkiService {
           referensi: row.referensi || '',
           score: row.score || 0,
           comment: row.comment || '',
+          pic_unit_bidang_id: row.pic_unit_bidang_id || null,
           sort: row.rekomendasi_sort
         });
       }
@@ -133,16 +135,17 @@ class PugkiService {
         )
       );
 
-      // Set status to in_progress if PICs are assigned, otherwise use provided status or draft
+      // Always set status to in_progress for new assessments (master data uses 'selesai')
       const initialStatus = data.is_master_data
         ? 'selesai'
-        : (hasPICAssignments ? 'in_progress' : (data.status || 'draft'));
+        : 'in_progress';
 
       // Create assessment
       await trx('pugki_assessment').insert({
         id: assessmentId,
         title: data.title,
         assessment_year: data.assessment_year,
+        unit_bidang_id: data.unit_bidang_id || null,
         status: initialStatus,
         notes: data.notes || '',
         is_master_data: data.is_master_data || false,
@@ -318,6 +321,7 @@ class PugkiService {
         .update({
           title: data.title,
           assessment_year: data.assessment_year,
+          unit_bidang_id: data.unit_bidang_id || null,
           status: data.status,
           notes: data.notes || '',
           updated_at: new Date()
@@ -340,6 +344,17 @@ class PugkiService {
             await this.autoSaveToMasterData(id);
           } catch (error) {
             console.error('Failed to auto-save to master data (non-blocking):', error);
+          }
+        });
+      }
+
+      // Auto-generate AOI if status is 'selesai' and score below threshold
+      if (data.status === 'selesai') {
+        setImmediate(async () => {
+          try {
+            await this.autoGenerateAOI(id);
+          } catch (error) {
+            console.error('Failed to auto-generate AOI (non-blocking):', error);
           }
         });
       }
@@ -435,6 +450,101 @@ class PugkiService {
       }
     } catch (error) {
       console.error('Failed to auto-save to master data:', error);
+      // Non-blocking, don't throw
+    }
+  }
+
+  async autoGenerateAOI(assessmentId) {
+    try {
+      const { db } = require('../../config/database');
+      const { v4: uuidv4 } = require('uuid');
+
+      // Get assessment with overall score
+      const assessment = await db('pugki_assessment')
+        .where('id', assessmentId)
+        .whereNull('deleted_at')
+        .first();
+
+      if (!assessment) {
+        console.log('Assessment not found for auto-generate AOI');
+        return;
+      }
+
+      // Only auto-generate if status is 'selesai' and NOT master data
+      if (assessment.status !== 'selesai' || assessment.is_master_data) {
+        console.log('Assessment does not meet criteria for auto-generate AOI');
+        return;
+      }
+
+      // Get AOI settings for PUGKI
+      const aoiSettings = await db('aoi_settings')
+        .where('assessment_type', 'PUGKI')
+        .first();
+
+      const minimumScore = aoiSettings ? parseFloat(aoiSettings.min_score_threshold) / 100 : 0.80;
+      const autoGenerateEnabled = aoiSettings ? aoiSettings.auto_generate_enabled : true;
+
+      const overallScore = assessment.overall_score || 0;
+
+      // Check if score is below threshold and auto-generate is enabled
+      if (autoGenerateEnabled && overallScore < minimumScore) {
+        console.log(`Overall score ${overallScore.toFixed(2)} is below minimum ${minimumScore.toFixed(2)}, creating PUGKI AOI...`);
+
+        const aoiId = uuidv4();
+        const now = new Date();
+
+        await db('aoi_monitoring').insert({
+          id: aoiId,
+          assessment_type: 'PUGKI',
+          title: `AOI - ${assessment.title}`,
+          year: assessment.assessment_year || new Date().getFullYear(),
+          status: 'draft',
+          notes: `Auto-generated: Assessment score (${(overallScore * 100).toFixed(1)}%) is below threshold (${(minimumScore * 100).toFixed(0)}%). Requires improvement actions.`,
+          created_by: assessment.assessor_id,
+          created_at: now,
+          updated_at: now
+        });
+
+        // Generate recommendations from rekomendasi with 'Explain' or low scores
+        const rekomendasis = await db('pugki_rekomendasi')
+          .leftJoin('pugki_prinsip', 'pugki_rekomendasi.pugki_prinsip_id', 'pugki_prinsip.id')
+          .where('pugki_rekomendasi.pugki_assessment_id', assessmentId)
+          .select(
+            'pugki_rekomendasi.id',
+            'pugki_rekomendasi.kode',
+            'pugki_rekomendasi.nama',
+            'pugki_rekomendasi.comply_explain',
+            'pugki_rekomendasi.score',
+            'pugki_prinsip.nama as prinsip_nama'
+          );
+
+        // Filter items that need improvement (Explain or low score)
+        const needsImprovement = rekomendasis.filter(r => 
+          r.comply_explain === 'Explain' || (r.score !== null && parseFloat(r.score) < minimumScore)
+        );
+
+        if (needsImprovement.length > 0) {
+          const recommendations = needsImprovement.map((item, index) => ({
+            id: uuidv4(),
+            aoi_monitoring_id: aoiId,
+            section: item.prinsip_nama || null,
+            nomor_indikator: item.kode,
+            rekomendasi: `Perbaikan diperlukan untuk: ${item.nama}${item.comply_explain === 'Explain' ? ' (Explain)' : ''}`,
+            sort: index,
+            created_at: now,
+            updated_at: now
+          }));
+
+          await db('aoi_monitoring_recommendation').insert(recommendations);
+          console.log(`Created ${recommendations.length} recommendations for PUGKI AOI ${aoiId}`);
+        }
+
+        console.log(`✅ AOI ${aoiId} created automatically for PUGKI assessment ${assessmentId}`);
+      } else {
+        console.log(`Score ${overallScore.toFixed(2)} is above threshold ${minimumScore.toFixed(2)}, no AOI needed`);
+      }
+    } catch (error) {
+      console.error('Failed to auto-generate AOI:', error);
       // Non-blocking, don't throw
     }
   }
@@ -580,6 +690,45 @@ class PugkiService {
 
     // All structure matches 100%
     return true;
+  }
+
+  /**
+   * Submit tindak lanjut - changes status to verifikasi
+   */
+  async submitTindakLanjut(assessmentId, userId) {
+    const db = this.repository.db;
+
+    try {
+      // Check if assessment exists
+      const assessment = await db('pugki_assessment')
+        .where('id', assessmentId)
+        .whereNull('deleted_at')
+        .first();
+
+      if (!assessment) {
+        throw new Error('Assessment not found');
+      }
+
+      // Validate status (must be in_progress or proses_tindak_lanjut)
+      if (assessment.status !== 'in_progress' && assessment.status !== 'proses_tindak_lanjut') {
+        throw new Error(`Cannot submit from status '${assessment.status}'`);
+      }
+
+      // Update status to verifikasi
+      await db('pugki_assessment')
+        .where('id', assessmentId)
+        .update({
+          status: 'verifikasi',
+          updated_at: new Date()
+        });
+
+      console.log(`✅ PUGKI assessment ${assessmentId} submitted for verification by user ${userId}`);
+
+      return { assessmentId, status: 'verifikasi' };
+    } catch (error) {
+      console.error('Error submitting PUGKI tindak lanjut:', error);
+      throw error;
+    }
   }
 }
 
