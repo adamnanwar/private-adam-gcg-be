@@ -43,12 +43,12 @@ class EvidenceService {
     this.db = getConnection();
     this.upload = upload;
     
-    // Mapping from new target_type values to database-compatible values
-    // Database CHECK constraint only allows: 'assessment_aspect', 'assessment_parameter', 'assessment_factor', 'aoi'
+    // Mapping from input target_type values to database-compatible values
+    // Database CHECK constraint only allows: 'kka', 'aoi', 'factor'
     this.targetTypeMapping = {
-      'factor': 'assessment_factor',
-      'parameter': 'assessment_parameter',
-      'kka': 'assessment_factor',  // KKA relates to factors
+      'factor': 'factor',
+      'parameter': 'factor',  // parameter maps to factor
+      'kka': 'kka',
       'aoi': 'aoi',
       'pugki_rekomendasi': 'aoi',  // AOI-related
       'acgs_question': 'aoi',       // AOI-related

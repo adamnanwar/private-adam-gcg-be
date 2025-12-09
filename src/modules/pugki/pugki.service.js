@@ -112,12 +112,54 @@ class PugkiService {
           score: row.score || 0,
           comment: row.comment || '',
           pic_unit_bidang_id: row.pic_unit_bidang_id || null,
-          sort: row.rekomendasi_sort
+          sort: row.rekomendasi_sort,
+          evidence: [] // Will be populated below
         });
       }
     }
 
-    return Object.values(prinsipMap);
+    // Load evidence for all rekomendasi
+    const prinsipList = Object.values(prinsipMap);
+    const allRekomendasiIds = [];
+    prinsipList.forEach(p => {
+      p.rekomendasi.forEach(r => {
+        allRekomendasiIds.push(r.id);
+      });
+    });
+
+    if (allRekomendasiIds.length > 0) {
+      const evidenceList = await this.repository.db('evidence')
+        .select('*')
+        .whereIn('target_id', allRekomendasiIds)
+        .where('target_type', 'rekomendasi')
+        .orderBy('created_at', 'desc');
+
+      // Create a map of rekomendasi_id -> evidence array
+      const evidenceMap = {};
+      evidenceList.forEach(ev => {
+        if (!evidenceMap[ev.target_id]) {
+          evidenceMap[ev.target_id] = [];
+        }
+        evidenceMap[ev.target_id].push({
+          id: ev.id,
+          file_name: ev.original_filename || ev.filename,
+          file_path: ev.file_path,
+          file_type: ev.mime_type,
+          file_size: ev.file_size,
+          note: ev.note,
+          uploaded_at: ev.created_at
+        });
+      });
+
+      // Attach evidence to rekomendasi
+      prinsipList.forEach(p => {
+        p.rekomendasi.forEach(r => {
+          r.evidence = evidenceMap[r.id] || [];
+        });
+      });
+    }
+
+    return prinsipList;
   }
 
   async createAssessment(data, userId) {
@@ -315,24 +357,26 @@ class PugkiService {
         throw new Error('PUGKI assessment not found');
       }
 
-      // Update assessment basic info
+      // Update assessment basic info - only update fields that are provided
+      const updateFields = {
+        updated_at: new Date(),
+        updated_by: userId
+      };
+      if (data.title !== undefined) updateFields.title = data.title;
+      if (data.assessment_year !== undefined) updateFields.assessment_year = data.assessment_year;
+      if (data.unit_bidang_id !== undefined) updateFields.unit_bidang_id = data.unit_bidang_id || null;
+      if (data.status !== undefined) updateFields.status = data.status;
+      if (data.notes !== undefined) updateFields.notes = data.notes || '';
+
       await trx('pugki_assessment')
         .where('id', id)
-        .update({
-          title: data.title,
-          assessment_year: data.assessment_year,
-          unit_bidang_id: data.unit_bidang_id || null,
-          status: data.status,
-          notes: data.notes || '',
-          updated_at: new Date(),
-          updated_by: userId
-        });
+        .update(updateFields);
 
-      // Delete existing hierarchy
-      await trx('pugki_prinsip').where('pugki_assessment_id', id).del();
-
-      // Create new hierarchy
+      // Only delete and recreate hierarchy if prinsip data is provided
       if (data.prinsip && data.prinsip.length > 0) {
+        // Delete existing hierarchy
+        await trx('pugki_prinsip').where('pugki_assessment_id', id).del();
+        // Create new hierarchy
         await this.createHierarchy(trx, id, data.prinsip);
       }
 
@@ -710,8 +754,8 @@ class PugkiService {
         throw new Error('Assessment not found');
       }
 
-      // Validate status (must be in_progress or proses_tindak_lanjut)
-      if (assessment.status !== 'in_progress' && assessment.status !== 'proses_tindak_lanjut') {
+      // Validate status (must be in_progress)
+      if (assessment.status !== 'in_progress') {
         throw new Error(`Cannot submit from status '${assessment.status}'`);
       }
 

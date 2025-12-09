@@ -161,7 +161,7 @@ class AcgsService {
     // Get evidence for these questions
     // Note: target_type is mapped from 'acgs_question' to 'aoi' by evidence service
     const evidenceList = questionIds.length > 0
-      ? await db('evidence')
+      ? await this.db('evidence')
           .select('evidence.*')
           .whereIn('evidence.target_id', questionIds)
           .where(function() {
@@ -442,24 +442,26 @@ class AcgsService {
         throw new Error('ACGS assessment not found');
       }
 
-      // Update assessment basic info
+      // Update assessment basic info - only update fields that are provided
+      const updateFields = {
+        updated_at: new Date(),
+        updated_by: userId
+      };
+      if (data.title !== undefined) updateFields.title = data.title;
+      if (data.assessment_year !== undefined) updateFields.assessment_year = data.assessment_year;
+      if (data.unit_bidang_id !== undefined) updateFields.unit_bidang_id = data.unit_bidang_id || null;
+      if (data.status !== undefined) updateFields.status = data.status;
+      if (data.notes !== undefined) updateFields.notes = data.notes || '';
+
       await trx('acgs_assessment')
         .where('id', id)
-        .update({
-          title: data.title,
-          assessment_year: data.assessment_year,
-          unit_bidang_id: data.unit_bidang_id || null,
-          status: data.status,
-          notes: data.notes || '',
-          updated_at: new Date(),
-          updated_by: userId
-        });
+        .update(updateFields);
 
-      // Delete existing hierarchy
-      await trx('acgs_section').where('acgs_assessment_id', id).del();
-
-      // Create new hierarchy
+      // Only delete and recreate hierarchy if sections data is provided
       if (data.sections && data.sections.length > 0) {
+        // Delete existing hierarchy
+        await trx('acgs_section').where('acgs_assessment_id', id).del();
+        // Create new hierarchy
         await this.createHierarchy(trx, id, data.sections);
       }
 
@@ -873,8 +875,8 @@ class AcgsService {
         throw new Error('Assessment not found');
       }
 
-      // Validate status (must be in_progress or proses_tindak_lanjut)
-      if (assessment.status !== 'in_progress' && assessment.status !== 'proses_tindak_lanjut') {
+      // Validate status (must be in_progress)
+      if (assessment.status !== 'in_progress') {
         throw new Error(`Cannot submit from status '${assessment.status}'`);
       }
 

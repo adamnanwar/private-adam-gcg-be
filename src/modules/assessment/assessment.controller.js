@@ -670,18 +670,22 @@ class AssessmentController {
       await db('pic_map').where({ assessment_id: assessmentId, status: 'submitted' })
         .update({ status: 'needs_revision', updated_at: new Date() });
 
-      // Opsional: simpan catatan revisi
+      // Opsional: simpan catatan revisi (optional - table may not exist)
       if (note) {
-        await db('assessment_revisions').insert({
-          id: randomUUID(),
-          assessment_id: assessmentId,
-          reason: 'Revision requested',
-          notes: note,
-          requested_by: req.user.id,
-          status: 'pending',
-          created_at: new Date(),
-          updated_at: new Date()
-        });
+        try {
+          await db('assessment_revisions').insert({
+            id: randomUUID(),
+            assessment_id: assessmentId,
+            reason: 'Revision requested',
+            notes: note,
+            requested_by: req.user.id,
+            status: 'pending',
+            created_at: new Date(),
+            updated_at: new Date()
+          });
+        } catch (revisionError) {
+          logger.warn('Could not save revision notes (table may not exist):', revisionError.message);
+        }
       }
 
       // Assessment tetap di 'in_progress' saat reject
@@ -903,18 +907,23 @@ class AssessmentController {
             updated_at: new Date()
           });
 
-        // Save revision notes if provided
+        // Save revision notes if provided (optional - table may not exist)
         if (revisionNotes) {
-          await db('assessment_revisions').insert({
-            id: randomUUID(),
-            assessment_id: assessmentId,
-            reason: 'Verification rejected',
-            notes: revisionNotes,
-            requested_by: userId,
-            status: 'pending',
-            created_at: new Date(),
-            updated_at: new Date()
-          });
+          try {
+            await db('assessment_revisions').insert({
+              id: randomUUID(),
+              assessment_id: assessmentId,
+              reason: 'Verification rejected',
+              notes: revisionNotes,
+              requested_by: userId,
+              status: 'pending',
+              created_at: new Date(),
+              updated_at: new Date()
+            });
+          } catch (revisionError) {
+            // Table may not exist, log but don't fail the rejection
+            logger.warn('Could not save revision notes (table may not exist):', revisionError.message);
+          }
         }
 
         logger.info(`Assessment ${assessmentId} rejected by assessor ${userId}`);
