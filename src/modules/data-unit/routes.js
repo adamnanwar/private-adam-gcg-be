@@ -28,11 +28,12 @@ module.exports = function(db) {
   // PUT /api/v1/data-units/:id - Update data unit
   router.put('/:id', requireRole(['admin']), controller.updateDataUnit.bind(controller));
 
+  // DELETE /api/v1/data-units/:id/hard - Hard delete data unit (admin only)
+  // NOTE: Must be BEFORE /:id to prevent "hard" being treated as :id
+  router.delete('/:id/hard', requireRole(['admin']), controller.hardDeleteDataUnit.bind(controller));
+
   // DELETE /api/v1/data-units/:id - Soft delete data unit
   router.delete('/:id', requireRole(['admin']), controller.deleteDataUnit.bind(controller));
-
-  // DELETE /api/v1/data-units/:id/hard - Hard delete data unit (admin only)
-  router.delete('/:id/hard', requireRole(['admin']), controller.hardDeleteDataUnit.bind(controller));
 
   return router;
 };
