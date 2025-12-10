@@ -393,8 +393,15 @@ class PugkiService {
         });
       }
 
-      // Auto-generate AOI if status is 'selesai' and score below threshold
+      // Calculate and save overall score when status changes to selesai
       if (data.status === 'selesai') {
+        try {
+          await this.calculateScore(id);
+        } catch (error) {
+          console.error('Failed to calculate score (non-blocking):', error);
+        }
+
+        // Auto-generate AOI if score below threshold
         setImmediate(async () => {
           try {
             await this.autoGenerateAOI(id);
