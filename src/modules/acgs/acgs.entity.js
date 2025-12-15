@@ -67,6 +67,26 @@ class AcgsResponse {
   }
 }
 
+class AcgsQuestionHeader {
+  constructor(data) {
+    this.id = data.id;
+    this.acgs_assessment_id = data.acgs_assessment_id;
+    this.acgs_section_id = data.acgs_section_id;
+    this.acgs_parameter_id = data.acgs_parameter_id;
+    this.kode = data.kode;
+    this.nama = data.nama;
+    this.sort = data.sort;
+    this.created_at = data.created_at;
+    this.updated_at = data.updated_at;
+    this.questions = data.questions || [];
+  }
+
+  static fromDatabase(data) {
+    if (!data) return null;
+    return new AcgsQuestionHeader(data);
+  }
+}
+
 const ACGS_STATUS = {
   DRAFT: 'draft',
   IN_PROGRESS: 'in_progress',
@@ -77,5 +97,6 @@ module.exports = {
   AcgsTemplate,
   AcgsAssessment,
   AcgsResponse,
+  AcgsQuestionHeader,
   ACGS_STATUS
 };

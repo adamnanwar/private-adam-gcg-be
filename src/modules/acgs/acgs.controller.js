@@ -87,6 +87,36 @@ class AcgsController {
 
   async createAssessment(req, res) {
     try {
+      // Question schema - shared between direct questions and questions under headers
+      const questionSchema = Joi.object({
+        id: Joi.string().optional(),
+        template_id: Joi.string().uuid().allow(null).optional(),
+        kode: Joi.string().allow('', null).optional(),
+        nama: Joi.string().allow('', null).optional(),
+        pertanyaan: Joi.string().allow('', null).optional(),
+        bobot: Joi.number().allow(null).optional(),
+        jawaban: Joi.string().allow('', null).optional(),
+        answer: Joi.string().allow('', null).optional(),
+        score: Joi.number().allow(null).optional(),
+        referensi_panduan: Joi.string().allow('', null).optional(),
+        implementasi_bukti: Joi.string().allow('', null).optional(),
+        link_dokumen: Joi.string().allow('', null).optional(),
+        referensi: Joi.string().allow('', null).optional(),
+        comment: Joi.string().allow('', null).optional(),
+        sort: Joi.number().optional(),
+        pic_unit_bidang_id: Joi.string().uuid().allow(null).optional(),
+        acgs_question_header_id: Joi.string().allow(null).optional() // Allow header reference
+      });
+
+      // Question header schema
+      const questionHeaderSchema = Joi.object({
+        id: Joi.string().optional(),
+        kode: Joi.string().allow('', null).optional(),
+        nama: Joi.string().allow('', null).optional(),
+        sort: Joi.number().optional(),
+        questions: Joi.array().items(questionSchema).optional()
+      });
+
       const schema = Joi.object({
         assessment_id: Joi.string().uuid().optional(),
         title: Joi.string().required(),
@@ -98,33 +128,21 @@ class AcgsController {
         assessor_id: Joi.string().uuid().optional(),
         sections: Joi.array().items(Joi.object({
           id: Joi.string().optional(),
+          template_id: Joi.string().uuid().allow(null).optional(),
           kode: Joi.string().allow('', null).optional(),
           nama: Joi.string().allow('', null).optional(),
+          bobot: Joi.number().allow(null).optional(), // Weight percentage for scoring
           sheet_type: Joi.string().allow('', null).optional(),
           sort: Joi.number().optional(),
           parameters: Joi.array().items(Joi.object({
             id: Joi.string().optional(),
+            template_id: Joi.string().uuid().allow(null).optional(),
             kode: Joi.string().allow('', null).optional(),
             nama: Joi.string().allow('', null).optional(),
             bobot: Joi.number().allow(null).optional(),
             sort: Joi.number().optional(),
-            questions: Joi.array().items(Joi.object({
-              id: Joi.string().optional(),
-              kode: Joi.string().allow('', null).optional(),
-              nama: Joi.string().allow('', null).optional(),
-              pertanyaan: Joi.string().allow('', null).optional(),
-              bobot: Joi.number().allow(null).optional(),
-              jawaban: Joi.string().allow('', null).optional(),
-              answer: Joi.string().allow('', null).optional(),
-              score: Joi.number().allow(null).optional(),
-              referensi_panduan: Joi.string().allow('', null).optional(),
-              implementasi_bukti: Joi.string().allow('', null).optional(),
-              link_dokumen: Joi.string().allow('', null).optional(),
-              referensi: Joi.string().allow('', null).optional(),
-              comment: Joi.string().allow('', null).optional(),
-              sort: Joi.number().optional(),
-              pic_unit_bidang_id: Joi.string().uuid().allow(null).optional()
-            })).optional()
+            question_headers: Joi.array().items(questionHeaderSchema).optional(), // Question headers support
+            questions: Joi.array().items(questionSchema).optional() // Direct questions
           })).optional()
         })).optional()
       });

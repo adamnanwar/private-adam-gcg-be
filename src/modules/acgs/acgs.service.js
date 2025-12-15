@@ -54,7 +54,7 @@ class AcgsService {
   }
 
   async getAssessmentHierarchy(assessmentId) {
-    // Get all sections, parameters, and questions in a single query with JOIN
+    // Get all sections, parameters, question headers and questions in a single query with JOIN
     const results = await this.db('acgs_section')
       .select(
         // Section fields
@@ -63,12 +63,31 @@ class AcgsService {
         'acgs_section.nama as section_nama',
         'acgs_section.sheet_type as section_sheet_type',
         'acgs_section.sort as section_sort',
+        // Section scoring fields
+        'acgs_section.bobot as section_bobot',
+        'acgs_section.total_questions as section_total_questions',
+        'acgs_section.total_na as section_total_na',
+        'acgs_section.total_applicable as section_total_applicable',
+        'acgs_section.total_yes as section_total_yes',
+        'acgs_section.score_percentage as section_score_percentage',
+        'acgs_section.weighted_score as section_weighted_score',
         // Parameter fields
         'acgs_parameter.id as parameter_id',
         'acgs_parameter.kode as parameter_kode',
         'acgs_parameter.nama as parameter_nama',
         'acgs_parameter.bobot as parameter_bobot',
         'acgs_parameter.sort as parameter_sort',
+        // Parameter scoring fields
+        'acgs_parameter.total_questions as parameter_total_questions',
+        'acgs_parameter.total_na as parameter_total_na',
+        'acgs_parameter.total_applicable as parameter_total_applicable',
+        'acgs_parameter.total_yes as parameter_total_yes',
+        'acgs_parameter.score_percentage as parameter_score_percentage',
+        // Question Header fields
+        'acgs_question_header.id as question_header_id',
+        'acgs_question_header.kode as question_header_kode',
+        'acgs_question_header.nama as question_header_nama',
+        'acgs_question_header.sort as question_header_sort',
         // Question fields
         'acgs_question.id as question_id',
         'acgs_question.kode as question_kode',
@@ -81,14 +100,18 @@ class AcgsService {
         'acgs_question.implementasi_bukti',
         'acgs_question.link_dokumen',
         'acgs_question.comment',
-        'acgs_question.pic_unit_bidang_id'
+        'acgs_question.pic_unit_bidang_id',
+        'acgs_question.acgs_question_header_id',
+        'acgs_question.sort as question_sort'
       )
       .where('acgs_section.acgs_assessment_id', assessmentId)
       .leftJoin('acgs_parameter', 'acgs_parameter.acgs_section_id', 'acgs_section.id')
+      .leftJoin('acgs_question_header', 'acgs_question_header.acgs_parameter_id', 'acgs_parameter.id')
       .leftJoin('acgs_question', 'acgs_question.acgs_parameter_id', 'acgs_parameter.id')
       .orderBy([
         { column: 'acgs_section.sort', order: 'asc' },
         { column: 'acgs_parameter.sort', order: 'asc' },
+        { column: 'acgs_question_header.sort', order: 'asc', nulls: 'first' },
         { column: 'acgs_question.sort', order: 'asc' }
       ]);
 
@@ -104,6 +127,14 @@ class AcgsService {
           nama: row.section_nama,
           sheet_type: row.section_sheet_type,
           sort: row.section_sort,
+          // Scoring fields
+          bobot: row.section_bobot,
+          total_questions: row.section_total_questions,
+          total_na: row.section_total_na,
+          total_applicable: row.section_total_applicable,
+          total_yes: row.section_total_yes,
+          score_percentage: row.section_score_percentage,
+          weighted_score: row.section_weighted_score,
           parameters: []
         };
       }
@@ -120,40 +151,98 @@ class AcgsService {
             nama: row.parameter_nama,
             bobot: row.parameter_bobot,
             sort: row.parameter_sort,
-            questions: []
+            // Scoring fields
+            total_questions: row.parameter_total_questions,
+            total_na: row.parameter_total_na,
+            total_applicable: row.parameter_total_applicable,
+            total_yes: row.parameter_total_yes,
+            score_percentage: row.parameter_score_percentage,
+            question_headers: [],
+            questions: [] // Questions without header
           };
           section.parameters.push(parameter);
         }
 
-        // Build Question
-        if (row.question_id) {
-          parameter.questions.push({
-            id: row.question_id,
-            kode: row.question_kode,
-            nama: row.question_nama,
-            pertanyaan: row.question_nama,
-            bobot: row.question_bobot,
-            jawaban: row.answer || null,
-            answer: row.answer || null,
-            score: row.score || null,
-            referensi: row.referensi || '',
-            referensi_panduan: row.referensi_panduan || '',
-            implementasi_bukti: row.implementasi_bukti || '',
-            link_dokumen: row.link_dokumen || '',
-            comment: row.comment || '',
-            pic_unit_bidang_id: row.pic_unit_bidang_id || null,
-            sort: row.question_sort
-          });
+        // Build Question Header (if exists)
+        if (row.question_header_id) {
+          let questionHeader = parameter.question_headers.find(qh => qh.id === row.question_header_id);
+          if (!questionHeader) {
+            questionHeader = {
+              id: row.question_header_id,
+              kode: row.question_header_kode,
+              nama: row.question_header_nama,
+              sort: row.question_header_sort,
+              questions: []
+            };
+            parameter.question_headers.push(questionHeader);
+          }
+
+          // Build Question under Header
+          if (row.question_id && row.acgs_question_header_id === row.question_header_id) {
+            const existsInHeader = questionHeader.questions.find(q => q.id === row.question_id);
+            if (!existsInHeader) {
+              questionHeader.questions.push({
+                id: row.question_id,
+                kode: row.question_kode,
+                nama: row.question_nama,
+                pertanyaan: row.question_nama,
+                bobot: row.question_bobot,
+                jawaban: row.answer || null,
+                answer: row.answer || null,
+                score: row.score || null,
+                referensi: row.referensi || '',
+                referensi_panduan: row.referensi_panduan || '',
+                implementasi_bukti: row.implementasi_bukti || '',
+                link_dokumen: row.link_dokumen || '',
+                comment: row.comment || '',
+                pic_unit_bidang_id: row.pic_unit_bidang_id || null,
+                acgs_question_header_id: row.acgs_question_header_id,
+                sort: row.question_sort
+              });
+            }
+          }
+        }
+
+        // Build Question without Header (direct under parameter)
+        if (row.question_id && !row.acgs_question_header_id) {
+          const existsInParameter = parameter.questions.find(q => q.id === row.question_id);
+          if (!existsInParameter) {
+            parameter.questions.push({
+              id: row.question_id,
+              kode: row.question_kode,
+              nama: row.question_nama,
+              pertanyaan: row.question_nama,
+              bobot: row.question_bobot,
+              jawaban: row.answer || null,
+              answer: row.answer || null,
+              score: row.score || null,
+              referensi: row.referensi || '',
+              referensi_panduan: row.referensi_panduan || '',
+              implementasi_bukti: row.implementasi_bukti || '',
+              link_dokumen: row.link_dokumen || '',
+              comment: row.comment || '',
+              pic_unit_bidang_id: row.pic_unit_bidang_id || null,
+              acgs_question_header_id: null,
+              sort: row.question_sort
+            });
+          }
         }
       }
     }
 
-    // Fetch evidence for all questions
+    // Fetch evidence for all questions (both with and without headers)
     const questionIds = [];
     for (const section of Object.values(sectionMap)) {
       for (const parameter of section.parameters) {
+        // Questions without header
         for (const question of parameter.questions) {
           questionIds.push(question.id);
+        }
+        // Questions with header
+        for (const qh of parameter.question_headers) {
+          for (const question of qh.questions) {
+            questionIds.push(question.id);
+          }
         }
       }
     }
@@ -190,16 +279,62 @@ class AcgsService {
       });
     }
 
-    // Attach evidence to questions
+    // Attach evidence to questions (both with and without headers)
     for (const section of Object.values(sectionMap)) {
       for (const parameter of section.parameters) {
+        // Questions without header
         for (const question of parameter.questions) {
           question.evidence = evidenceMap[question.id] || [];
+        }
+        // Questions with header
+        for (const qh of parameter.question_headers) {
+          for (const question of qh.questions) {
+            question.evidence = evidenceMap[question.id] || [];
+          }
         }
       }
     }
 
-    return Object.values(sectionMap);
+    // Sort sections by kode naturally (A, B, C...) and by sort field
+    const sortedSections = Object.values(sectionMap).sort((a, b) => {
+      // First compare by sort field
+      if (a.sort !== b.sort) return (a.sort || 0) - (b.sort || 0);
+      // Then compare by kode naturally
+      return (a.kode || '').localeCompare(b.kode || '', undefined, { numeric: true, sensitivity: 'base' });
+    });
+
+    // Sort parameters and questions within each section
+    for (const section of sortedSections) {
+      // Sort parameters by sort field, then by kode
+      section.parameters.sort((a, b) => {
+        if (a.sort !== b.sort) return (a.sort || 0) - (b.sort || 0);
+        return (a.kode || '').localeCompare(b.kode || '', undefined, { numeric: true, sensitivity: 'base' });
+      });
+
+      for (const param of section.parameters) {
+        // Sort question headers by sort field, then by kode
+        (param.question_headers || []).sort((a, b) => {
+          if (a.sort !== b.sort) return (a.sort || 0) - (b.sort || 0);
+          return (a.kode || '').localeCompare(b.kode || '', undefined, { numeric: true, sensitivity: 'base' });
+        });
+
+        // Sort questions under headers
+        for (const qh of (param.question_headers || [])) {
+          (qh.questions || []).sort((a, b) => {
+            if (a.sort !== b.sort) return (a.sort || 0) - (b.sort || 0);
+            return (a.kode || '').localeCompare(b.kode || '', undefined, { numeric: true, sensitivity: 'base' });
+          });
+        }
+
+        // Sort direct questions by sort field, then by kode
+        (param.questions || []).sort((a, b) => {
+          if (a.sort !== b.sort) return (a.sort || 0) - (b.sort || 0);
+          return (a.kode || '').localeCompare(b.kode || '', undefined, { numeric: true, sensitivity: 'base' });
+        });
+      }
+    }
+
+    return sortedSections;
   }
 
 
@@ -211,13 +346,19 @@ class AcgsService {
       const { v4: uuidv4 } = require('uuid');
       const assessmentId = uuidv4();
 
-      // Check if any PICs are assigned
+      // Check if any PICs are assigned (support both direct questions and questions under headers)
       const hasPICAssignments = (data.sections || []).some(section =>
-        (section.parameters || []).some(parameter =>
-          (parameter.questions || []).some(question =>
+        (section.parameters || []).some(parameter => {
+          // Check direct questions
+          const hasDirectPIC = (parameter.questions || []).some(question =>
             question.pic_unit_bidang_id
-          )
-        )
+          );
+          // Check questions under headers
+          const hasHeaderPIC = (parameter.question_headers || []).some(qh =>
+            (qh.questions || []).some(question => question.pic_unit_bidang_id)
+          );
+          return hasDirectPIC || hasHeaderPIC;
+        })
       );
 
       // Always set status to in_progress for new assessments (master data uses 'selesai')
@@ -363,24 +504,28 @@ class AcgsService {
   async createHierarchy(trx, assessmentId, sections) {
     const { v4: uuidv4 } = require('uuid');
 
-    for (const sectionItem of sections) {
+    // Process sections with index-based sort for consistent ordering
+    for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
+      const sectionItem = sections[sectionIndex];
       const sectionId = uuidv4();
 
-      // Insert Section
+      // Insert Section with index-based sort
       await trx('acgs_section').insert({
         id: sectionId,
         acgs_assessment_id: assessmentId,
         kode: sectionItem.kode,
         nama: sectionItem.nama,
+        bobot: sectionItem.bobot ?? null, // Weight percentage for scoring
         sheet_type: sectionItem.sheet_type || null,
-        sort: sectionItem.sort || 0,
+        sort: sectionItem.sort !== undefined ? sectionItem.sort : sectionIndex,
         created_at: new Date(),
         updated_at: new Date()
       });
 
-      // Insert Parameters
+      // Insert Parameters with index-based sort
       if (sectionItem.parameters && sectionItem.parameters.length > 0) {
-        for (const parameterItem of sectionItem.parameters) {
+        for (let paramIndex = 0; paramIndex < sectionItem.parameters.length; paramIndex++) {
+          const parameterItem = sectionItem.parameters[paramIndex];
           const parameterId = uuidv4();
 
           await trx('acgs_parameter').insert({
@@ -390,14 +535,65 @@ class AcgsService {
             kode: parameterItem.kode,
             nama: parameterItem.nama,
             bobot: parameterItem.bobot || null,
-            sort: parameterItem.sort || 0,
+            sort: parameterItem.sort !== undefined ? parameterItem.sort : paramIndex,
             created_at: new Date(),
             updated_at: new Date()
           });
 
-          // Insert Questions
+          // Insert Question Headers (if any) with index-based sort
+          if (parameterItem.question_headers && parameterItem.question_headers.length > 0) {
+            for (let headerIndex = 0; headerIndex < parameterItem.question_headers.length; headerIndex++) {
+              const headerItem = parameterItem.question_headers[headerIndex];
+              const headerId = uuidv4();
+
+              await trx('acgs_question_header').insert({
+                id: headerId,
+                acgs_assessment_id: assessmentId,
+                acgs_section_id: sectionId,
+                acgs_parameter_id: parameterId,
+                kode: headerItem.kode || null,
+                nama: headerItem.nama,
+                sort: headerItem.sort !== undefined ? headerItem.sort : headerIndex,
+                created_at: new Date(),
+                updated_at: new Date()
+              });
+
+              // Insert Questions under this header with index-based sort
+              if (headerItem.questions && headerItem.questions.length > 0) {
+                for (let qIndex = 0; qIndex < headerItem.questions.length; qIndex++) {
+                  const questionItem = headerItem.questions[qIndex];
+                  const questionId = uuidv4();
+
+                  await trx('acgs_question').insert({
+                    id: questionId,
+                    acgs_assessment_id: assessmentId,
+                    acgs_section_id: sectionId,
+                    acgs_parameter_id: parameterId,
+                    acgs_question_header_id: headerId,
+                    kode: questionItem.kode,
+                    nama: questionItem.nama || questionItem.pertanyaan,
+                    bobot: questionItem.bobot || null,
+                    answer: questionItem.answer || questionItem.jawaban || null,
+                    score: questionItem.score || null,
+                    referensi: questionItem.referensi || '',
+                    referensi_panduan: questionItem.referensi_panduan || '',
+                    implementasi_bukti: questionItem.implementasi_bukti || '',
+                    link_dokumen: questionItem.link_dokumen || '',
+                    comment: questionItem.comment || '',
+                    pic_unit_bidang_id: questionItem.pic_unit_bidang_id || null,
+                    sort: questionItem.sort !== undefined ? questionItem.sort : qIndex,
+                    created_at: new Date(),
+                    updated_at: new Date()
+                  });
+                }
+              }
+            }
+          }
+
+          // Insert Questions (without header - direct under parameter) with index-based sort
           if (parameterItem.questions && parameterItem.questions.length > 0) {
-            for (const questionItem of parameterItem.questions) {
+            for (let qIndex = 0; qIndex < parameterItem.questions.length; qIndex++) {
+              const questionItem = parameterItem.questions[qIndex];
               const questionId = uuidv4();
 
               await trx('acgs_question').insert({
@@ -405,6 +601,7 @@ class AcgsService {
                 acgs_assessment_id: assessmentId,
                 acgs_section_id: sectionId,
                 acgs_parameter_id: parameterId,
+                acgs_question_header_id: null, // No header
                 kode: questionItem.kode,
                 nama: questionItem.nama || questionItem.pertanyaan,
                 bobot: questionItem.bobot || null,
@@ -416,7 +613,7 @@ class AcgsService {
                 link_dokumen: questionItem.link_dokumen || '',
                 comment: questionItem.comment || '',
                 pic_unit_bidang_id: questionItem.pic_unit_bidang_id || null,
-                sort: questionItem.sort || 0,
+                sort: questionItem.sort !== undefined ? questionItem.sort : qIndex,
                 created_at: new Date(),
                 updated_at: new Date()
               });
@@ -459,7 +656,12 @@ class AcgsService {
 
       // Only delete and recreate hierarchy if sections data is provided
       if (data.sections && data.sections.length > 0) {
-        // Delete existing hierarchy
+        // Delete existing hierarchy (order matters due to FK constraints)
+        // First delete questions (they reference question_headers)
+        await trx('acgs_question').where('acgs_assessment_id', id).del();
+        // Then delete question_headers
+        await trx('acgs_question_header').where('acgs_assessment_id', id).del();
+        // Then delete sections (which cascades to parameters via FK)
         await trx('acgs_section').where('acgs_assessment_id', id).del();
         // Create new hierarchy
         await this.createHierarchy(trx, id, data.sections);
@@ -561,11 +763,35 @@ class AcgsService {
           updated_at: new Date()
         });
 
-        // Copy structure (sections, parameters, questions) - but clear assessment-specific data
+        // Copy structure (sections, parameters, question_headers, questions) - but clear assessment-specific data
         const masterDataSections = fullData.sections.map(s => ({
           ...s,
           parameters: (s.parameters || []).map(p => ({
             ...p,
+            // Copy question headers with their questions
+            question_headers: (p.question_headers || []).map(qh => ({
+              kode: qh.kode,
+              nama: qh.nama,
+              sort: qh.sort,
+              questions: (qh.questions || []).map(q => ({
+                kode: q.kode,
+                nama: q.nama,
+                pertanyaan: q.pertanyaan || q.nama,
+                bobot: q.bobot,
+                // Clear assessment-specific fields
+                answer: null,
+                jawaban: null,
+                score: null,
+                referensi: q.referensi || '',
+                referensi_panduan: '',
+                implementasi_bukti: '',
+                link_dokumen: '',
+                comment: '',
+                pic_unit_bidang_id: null,
+                sort: q.sort
+              }))
+            })),
+            // Copy direct questions (without header)
             questions: (p.questions || []).map(q => ({
               kode: q.kode,
               nama: q.nama,
@@ -722,37 +948,191 @@ class AcgsService {
     return results;
   }
 
+  /**
+   * Calculate ACGS Score with proper formula:
+   * - Per Parameter: Score = Total Yes / (Total - N/A)
+   * - Per Section with dynamic bobot from database (or default: A=20%, B=15%, C=25%, D=40%)
+   * - Level 1 Score = Sum of weighted section scores
+   */
   async calculateScore(assessmentId) {
-    const responses = await this.repository.getResponsesByAssessment(assessmentId);
+    // Default bobot per prinsip (used if section doesn't have bobot set)
+    const DEFAULT_WEIGHTS = {
+      'A': 20,
+      'B': 15,
+      'C': 25,
+      'D': 40
+    };
 
-    let totalYes = 0;
-    let totalApplicable = 0;
+    // 1. Get all sections with their bobot first
+    const sections = await this.db('acgs_section')
+      .select('id', 'kode', 'bobot')
+      .where('acgs_assessment_id', assessmentId);
 
-    responses.forEach(r => {
-      if (r.answer !== 'N/A') {
-        totalApplicable++;
-        if (r.answer === 'Yes') totalYes++;
+    // Build section weight map from database or defaults
+    const sectionWeightMap = {};
+    for (const section of sections) {
+      // Use section's bobot if set, otherwise use default based on kode
+      sectionWeightMap[section.id] = section.bobot !== null && section.bobot !== undefined
+        ? parseFloat(section.bobot)
+        : (DEFAULT_WEIGHTS[section.kode] || 0);
+    }
+
+    // 2. Get all questions with section and parameter info
+    const questions = await this.db('acgs_question')
+      .select(
+        'acgs_question.id',
+        'acgs_question.acgs_section_id',
+        'acgs_question.acgs_parameter_id',
+        'acgs_question.answer',
+        'acgs_section.kode as section_kode',
+        'acgs_parameter.kode as param_kode'
+      )
+      .join('acgs_section', 'acgs_question.acgs_section_id', 'acgs_section.id')
+      .join('acgs_parameter', 'acgs_question.acgs_parameter_id', 'acgs_parameter.id')
+      .where('acgs_question.acgs_assessment_id', assessmentId);
+
+    // 2. Group questions by parameter
+    const parameterStats = {};
+    const sectionStats = {};
+
+    for (const q of questions) {
+      // Initialize parameter stats
+      if (!parameterStats[q.acgs_parameter_id]) {
+        parameterStats[q.acgs_parameter_id] = {
+          section_id: q.acgs_section_id,
+          section_kode: q.section_kode,
+          param_kode: q.param_kode,
+          total: 0,
+          na: 0,
+          yes: 0
+        };
       }
-    });
 
-    const overallScore = totalApplicable > 0 ? (totalYes / totalApplicable) * 100 : 0;
+      // Count
+      parameterStats[q.acgs_parameter_id].total++;
+      if (q.answer === 'N/A') {
+        parameterStats[q.acgs_parameter_id].na++;
+      } else if (q.answer === 'Yes') {
+        parameterStats[q.acgs_parameter_id].yes++;
+      }
+    }
 
-    // Determine level achieved
+    // 3. Calculate parameter scores and aggregate to sections
+    for (const [paramId, stats] of Object.entries(parameterStats)) {
+      const applicable = stats.total - stats.na;
+      const percentage = applicable > 0 ? stats.yes / applicable : 0;
+
+      // Update parameter in database
+      await this.db('acgs_parameter')
+        .where('id', paramId)
+        .update({
+          total_questions: stats.total,
+          total_na: stats.na,
+          total_applicable: applicable,
+          total_yes: stats.yes,
+          score_percentage: percentage,
+          updated_at: new Date()
+        });
+
+      // Aggregate to section
+      if (!sectionStats[stats.section_id]) {
+        sectionStats[stats.section_id] = {
+          kode: stats.section_kode,
+          total: 0,
+          na: 0,
+          yes: 0
+        };
+      }
+      sectionStats[stats.section_id].total += stats.total;
+      sectionStats[stats.section_id].na += stats.na;
+      sectionStats[stats.section_id].yes += stats.yes;
+    }
+
+    // 4. Calculate section scores with bobot
+    let level1Score = 0;
+    let totalQuestions = 0;
+    let totalNa = 0;
+    let totalYes = 0;
+
+    const sectionDetails = [];
+
+    for (const [sectionId, stats] of Object.entries(sectionStats)) {
+      const applicable = stats.total - stats.na;
+      const percentage = applicable > 0 ? stats.yes / applicable : 0;
+      // Use bobot from database (via sectionWeightMap) or fallback to default
+      const bobot = sectionWeightMap[sectionId] !== undefined
+        ? sectionWeightMap[sectionId]
+        : (DEFAULT_WEIGHTS[stats.kode] || 0);
+      const weighted = percentage * bobot;
+
+      level1Score += weighted;
+      totalQuestions += stats.total;
+      totalNa += stats.na;
+      totalYes += stats.yes;
+
+      // Update section in database
+      await this.db('acgs_section')
+        .where('id', sectionId)
+        .update({
+          bobot: bobot,
+          total_questions: stats.total,
+          total_na: stats.na,
+          total_applicable: applicable,
+          total_yes: stats.yes,
+          score_percentage: percentage,
+          weighted_score: weighted,
+          updated_at: new Date()
+        });
+
+      sectionDetails.push({
+        kode: stats.kode,
+        total: stats.total,
+        na: stats.na,
+        applicable: applicable,
+        yes: stats.yes,
+        bobot: bobot,
+        percentage: percentage,
+        weighted: weighted
+      });
+    }
+
+    const totalApplicable = totalQuestions - totalNa;
+
+    // 5. Determine level achieved
     let levelAchieved = 0;
     const criteria = await this.db('acgs_scoring_criteria').orderBy('level', 'asc');
     for (const c of criteria) {
-      if (overallScore >= parseFloat(c.min_score) && overallScore <= parseFloat(c.max_score)) {
+      if (level1Score >= parseFloat(c.min_score) && level1Score <= parseFloat(c.max_score)) {
         levelAchieved = c.level;
         break;
       }
     }
 
+    // 6. Update assessment with all scoring data
     await this.repository.updateAssessment(assessmentId, {
-      overall_score: overallScore,
+      overall_score: level1Score,
+      level1_score: level1Score,
+      total_questions: totalQuestions,
+      total_na: totalNa,
+      total_applicable: totalApplicable,
+      total_yes: totalYes,
       level_achieved: levelAchieved
     });
 
-    return { overallScore, levelAchieved };
+    console.log(`✅ ACGS Score calculated for ${assessmentId}:`);
+    console.log(`   Level 1 Score: ${level1Score.toFixed(2)}`);
+    console.log(`   Level Achieved: ${levelAchieved}`);
+    console.log(`   Sections:`, sectionDetails.map(s => `${s.kode}=${s.weighted.toFixed(2)}`).join(', '));
+
+    return {
+      level1Score,
+      levelAchieved,
+      totalQuestions,
+      totalNa,
+      totalApplicable,
+      totalYes,
+      sectionDetails
+    };
   }
 
   async getDeletedAssessments(page = 1, limit = 50) {
@@ -816,7 +1196,7 @@ class AcgsService {
 
   /**
    * Compare two ACGS assessment structures for 100% similarity
-   * Only compares structure (sections, parameters, questions), not answers/scores
+   * Only compares structure (sections, parameters, question_headers, questions), not answers/scores
    * @param {Object} data1 - First assessment data
    * @param {Object} data2 - Second assessment data
    * @returns {boolean} - True if 100% similar
@@ -846,17 +1226,38 @@ class AcgsService {
         // Compare parameter kode + nama
         if (p1.kode !== p2.kode || p1.nama !== p2.nama) return false;
 
-        // Compare questions count
-        if (!p1.questions || !p2.questions) return false;
-        if (p1.questions.length !== p2.questions.length) return false;
+        // Compare question headers count
+        const qh1 = p1.question_headers || [];
+        const qh2 = p2.question_headers || [];
+        if (qh1.length !== qh2.length) return false;
 
-        // Compare each question
-        for (let k = 0; k < p1.questions.length; k++) {
-          const q1 = p1.questions[k];
-          const q2 = p2.questions[k];
+        // Compare each question header
+        for (let h = 0; h < qh1.length; h++) {
+          const header1 = qh1[h];
+          const header2 = qh2[h];
 
+          // Compare header nama
+          if (header1.nama !== header2.nama) return false;
+
+          // Compare questions under this header
+          const hq1 = header1.questions || [];
+          const hq2 = header2.questions || [];
+          if (hq1.length !== hq2.length) return false;
+
+          for (let hk = 0; hk < hq1.length; hk++) {
+            if (hq1[hk].kode !== hq2[hk].kode || hq1[hk].pertanyaan !== hq2[hk].pertanyaan) return false;
+          }
+        }
+
+        // Compare direct questions count (without header)
+        const q1 = p1.questions || [];
+        const q2 = p2.questions || [];
+        if (q1.length !== q2.length) return false;
+
+        // Compare each direct question
+        for (let k = 0; k < q1.length; k++) {
           // Compare question kode + pertanyaan text
-          if (q1.kode !== q2.kode || q1.pertanyaan !== q2.pertanyaan) return false;
+          if (q1[k].kode !== q2[k].kode || q1[k].pertanyaan !== q2[k].pertanyaan) return false;
         }
       }
     }
