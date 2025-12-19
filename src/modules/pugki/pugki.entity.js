@@ -31,11 +31,13 @@ class PugkiAssessment {
     this.status = data.status;
     this.overall_score = data.overall_score;
     this.created_by = data.created_by;
+    this.updated_by = data.updated_by;
     this.created_at = data.created_at;
     this.updated_at = data.updated_at;
 
     // Additional fields from joins
     this.created_by_name = data.created_by_name;
+    this.updated_by_name = data.updated_by_name;
   }
 
   static fromDatabase(data) {

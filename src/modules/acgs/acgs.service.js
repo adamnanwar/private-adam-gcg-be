@@ -1293,7 +1293,8 @@ class AcgsService {
         .where('id', assessmentId)
         .update({
           status: 'verifikasi',
-          updated_at: new Date()
+          updated_at: new Date(),
+          updated_by: userId
         });
 
       console.log(`✅ ACGS assessment ${assessmentId} submitted for verification by user ${userId}`);

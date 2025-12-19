@@ -33,9 +33,11 @@ class AcgsAssessment {
     this.overall_score = data.overall_score;
     this.level_achieved = data.level_achieved;
     this.created_by = data.created_by;
+    this.updated_by = data.updated_by;
     this.created_at = data.created_at;
     this.updated_at = data.updated_at;
     this.created_by_name = data.created_by_name;
+    this.updated_by_name = data.updated_by_name;
   }
 
   static fromDatabase(data) {

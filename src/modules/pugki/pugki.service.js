@@ -771,7 +771,8 @@ class PugkiService {
         .where('id', assessmentId)
         .update({
           status: 'verifikasi',
-          updated_at: new Date()
+          updated_at: new Date(),
+          updated_by: userId
         });
 
       console.log(`✅ PUGKI assessment ${assessmentId} submitted for verification by user ${userId}`);
