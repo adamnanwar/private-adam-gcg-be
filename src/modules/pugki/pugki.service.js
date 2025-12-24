@@ -74,10 +74,16 @@ class PugkiService {
         'pugki_rekomendasi.score',
         'pugki_rekomendasi.comment',
         'pugki_rekomendasi.pic_unit_bidang_id',
-        'pugki_rekomendasi.sort as rekomendasi_sort'
+        'pugki_rekomendasi.sort as rekomendasi_sort',
+        'pugki_rekomendasi.pic_submitted',
+        'pugki_rekomendasi.pic_rejected',
+        'pugki_rekomendasi.pic_rejection_note',
+        'pugki_rekomendasi.pic_submitted_at',
+        'unit_bidang.nama as pic_unit_bidang_nama'
       )
       .where('pugki_prinsip.pugki_assessment_id', assessmentId)
       .leftJoin('pugki_rekomendasi', 'pugki_rekomendasi.pugki_prinsip_id', 'pugki_prinsip.id')
+      .leftJoin('unit_bidang', 'unit_bidang.id', 'pugki_rekomendasi.pic_unit_bidang_id')
       .orderBy([
         { column: 'pugki_prinsip.sort', order: 'asc' },
         { column: 'pugki_rekomendasi.sort', order: 'asc' }
@@ -112,8 +118,13 @@ class PugkiService {
           score: row.score || 0,
           comment: row.comment || '',
           pic_unit_bidang_id: row.pic_unit_bidang_id || null,
+          pic_unit_bidang_nama: row.pic_unit_bidang_nama || null,
           sort: row.rekomendasi_sort,
-          evidence: [] // Will be populated below
+          evidence: [], // Will be populated below
+          pic_submitted: row.pic_submitted || false,
+          pic_rejected: row.pic_rejected || false,
+          pic_rejection_note: row.pic_rejection_note || null,
+          pic_submitted_at: row.pic_submitted_at || null
         });
       }
     }
@@ -745,9 +756,10 @@ class PugkiService {
   }
 
   /**
-   * Submit tindak lanjut - changes status to verifikasi
+   * Submit tindak lanjut - marks PIC's rekomendasi as submitted
+   * Only changes status to verifikasi when ALL PICs have submitted
    */
-  async submitTindakLanjut(assessmentId, userId) {
+  async submitTindakLanjut(assessmentId, userId, userUnitBidangId) {
     const db = this.repository.db;
 
     try {
@@ -761,25 +773,155 @@ class PugkiService {
         throw new Error('Assessment not found');
       }
 
-      // Validate status (must be in_progress)
-      if (assessment.status !== 'in_progress') {
+      // Validate status (must be in_progress or proses_tindak_lanjut)
+      if (assessment.status !== 'in_progress' && assessment.status !== 'proses_tindak_lanjut') {
         throw new Error(`Cannot submit from status '${assessment.status}'`);
       }
 
-      // Update status to verifikasi
+      // Get user's unit_bidang_id from users table if not provided
+      let unitBidangId = userUnitBidangId;
+      if (!unitBidangId) {
+        const user = await db('users').where('id', userId).first();
+        unitBidangId = user?.unit_bidang_id;
+      }
+
+      // Check if user is admin
+      const user = await db('users').where('id', userId).first();
+      const isAdmin = user?.role === 'admin';
+
+      if (isAdmin) {
+        // Admin can force submit all - mark all rekomendasi as submitted
+        await db('pugki_rekomendasi')
+          .where('pugki_assessment_id', assessmentId)
+          .whereNotNull('pic_unit_bidang_id')
+          .update({
+            pic_submitted: true,
+            pic_submitted_at: new Date(),
+            pic_rejected: false,
+            pic_rejection_note: null,
+            updated_at: new Date()
+          });
+
+        console.log(`✅ Admin ${userId} force-submitted all PICs for PUGKI assessment ${assessmentId}`);
+      } else {
+        // PIC submits only their assigned rekomendasi
+        if (!unitBidangId) {
+          throw new Error('User does not have a unit bidang assigned');
+        }
+
+        // Check if this PIC has already submitted
+        const alreadySubmitted = await db('pugki_rekomendasi')
+          .where('pugki_assessment_id', assessmentId)
+          .where('pic_unit_bidang_id', unitBidangId)
+          .where('pic_submitted', true)
+          .first();
+
+        if (alreadySubmitted) {
+          throw new Error('Anda sudah submit tindak lanjut. Tidak dapat submit ulang kecuali ada rejection dari verifikator.');
+        }
+
+        // Mark all rekomendasi assigned to this PIC as submitted
+        const updatedCount = await db('pugki_rekomendasi')
+          .where('pugki_assessment_id', assessmentId)
+          .where('pic_unit_bidang_id', unitBidangId)
+          .update({
+            pic_submitted: true,
+            pic_submitted_at: new Date(),
+            pic_rejected: false,
+            pic_rejection_note: null,
+            updated_at: new Date()
+          });
+
+        console.log(`✅ PIC ${userId} (Unit: ${unitBidangId}) submitted ${updatedCount} rekomendasi for PUGKI assessment ${assessmentId}`);
+      }
+
+      // Check if ALL PICs have submitted - if so, change status to verifikasi
+      // Otherwise, keep status as in_progress
+      const allPICsSubmitted = await this.checkAllPICsSubmitted(assessmentId);
+
+      if (allPICsSubmitted) {
+        await db('pugki_assessment')
+          .where('id', assessmentId)
+          .update({
+            status: 'verifikasi',
+            updated_at: new Date(),
+            updated_by: userId
+          });
+
+        console.log(`✅ All PICs submitted! PUGKI assessment ${assessmentId} moved to verifikasi`);
+        return { assessmentId, status: 'verifikasi', allPICsSubmitted: true };
+      }
+
+      // Keep status as in_progress until all PICs submit
+      return { assessmentId, status: 'in_progress', allPICsSubmitted: false };
+    } catch (error) {
+      console.error('Error submitting PUGKI tindak lanjut:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check if all PICs have submitted their tindak lanjut
+   */
+  async checkAllPICsSubmitted(assessmentId) {
+    const db = this.repository.db;
+
+    // Get all unique unit_bidang_ids that have rekomendasi assigned
+    const assignedUnits = await db('pugki_rekomendasi')
+      .where('pugki_assessment_id', assessmentId)
+      .whereNotNull('pic_unit_bidang_id')
+      .distinct('pic_unit_bidang_id');
+
+    if (assignedUnits.length === 0) {
+      // No PICs assigned, can proceed to verifikasi
+      return true;
+    }
+
+    // Check if there are any rekomendasi that are NOT submitted yet
+    const unsubmittedCount = await db('pugki_rekomendasi')
+      .where('pugki_assessment_id', assessmentId)
+      .whereNotNull('pic_unit_bidang_id')
+      .where(function() {
+        this.where('pic_submitted', false).orWhereNull('pic_submitted');
+      })
+      .count('id as count')
+      .first();
+
+    return parseInt(unsubmittedCount.count) === 0;
+  }
+
+  /**
+   * Reject PIC's submission during verification
+   */
+  async rejectPICSubmission(assessmentId, unitBidangId, rejectionNote, userId) {
+    const db = this.repository.db;
+
+    try {
+      // Mark all rekomendasi for this unit bidang as rejected
+      const updatedCount = await db('pugki_rekomendasi')
+        .where('pugki_assessment_id', assessmentId)
+        .where('pic_unit_bidang_id', unitBidangId)
+        .update({
+          pic_submitted: false,
+          pic_rejected: true,
+          pic_rejection_note: rejectionNote,
+          updated_at: new Date()
+        });
+
+      // Update assessment status back to in_progress (so rejected PIC can re-submit)
       await db('pugki_assessment')
         .where('id', assessmentId)
         .update({
-          status: 'verifikasi',
+          status: 'in_progress',
           updated_at: new Date(),
           updated_by: userId
         });
 
-      console.log(`✅ PUGKI assessment ${assessmentId} submitted for verification by user ${userId}`);
+      console.log(`✅ Rejected ${updatedCount} rekomendasi for unit ${unitBidangId} in PUGKI assessment ${assessmentId}`);
 
-      return { assessmentId, status: 'verifikasi' };
+      return { success: true, updatedCount };
     } catch (error) {
-      console.error('Error submitting PUGKI tindak lanjut:', error);
+      console.error('Error rejecting PIC submission:', error);
       throw error;
     }
   }

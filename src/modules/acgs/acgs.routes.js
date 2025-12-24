@@ -28,10 +28,13 @@ module.exports = function(db) {
   router.delete('/assessments/:id', requireRole(['admin']), controller.deleteAssessment.bind(controller));
 
   // Tindak Lanjut Submit
-  router.post('/assessments/:id/submit', requireRole(['admin', 'assessor', 'user']), controller.submitTindakLanjut.bind(controller));
+  router.post('/assessments/:id/submit', requireRole(['admin', 'assessor', 'user', 'pic']), controller.submitTindakLanjut.bind(controller));
+
+  // Reject PIC Submission (for admin/assessor during verification)
+  router.post('/assessments/:id/reject-pic', requireRole(['admin', 'assessor']), controller.rejectPICSubmission.bind(controller));
 
   // Responses
-  router.post('/assessments/:id/responses', requireRole(['admin', 'assessor', 'user']), controller.saveResponses.bind(controller));
+  router.post('/assessments/:id/responses', requireRole(['admin', 'assessor', 'user', 'pic']), controller.saveResponses.bind(controller));
 
   return router;
 };

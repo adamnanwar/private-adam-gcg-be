@@ -203,10 +203,37 @@ class AcgsController {
     try {
       const { id } = req.params;
       const userId = req.user.id;
-      const result = await this.service.submitTindakLanjut(id, userId);
-      res.json({ success: true, data: result, message: 'ACGS assessment submitted for verification' });
+      const userUnitBidangId = req.user.unit_bidang_id;
+      const result = await this.service.submitTindakLanjut(id, userId, userUnitBidangId);
+
+      let message = 'Tindak lanjut berhasil disubmit';
+      if (result.allPICsSubmitted) {
+        message = 'Semua PIC sudah submit! Assessment siap untuk verifikasi';
+      } else {
+        message = 'Tindak lanjut Anda berhasil disubmit. Menunggu PIC lain untuk submit.';
+      }
+
+      res.json({ success: true, data: result, message });
     } catch (error) {
       console.error('Error submitting tindak lanjut:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  async rejectPICSubmission(req, res) {
+    try {
+      const { id } = req.params;
+      const { unit_bidang_id, rejection_note } = req.body;
+      const userId = req.user.id;
+
+      if (!unit_bidang_id) {
+        return res.status(400).json({ success: false, error: 'unit_bidang_id is required' });
+      }
+
+      const result = await this.service.rejectPICSubmission(id, unit_bidang_id, rejection_note, userId);
+      res.json({ success: true, data: result, message: 'PIC submission rejected successfully' });
+    } catch (error) {
+      console.error('Error rejecting PIC submission:', error);
       res.status(500).json({ success: false, error: error.message });
     }
   }

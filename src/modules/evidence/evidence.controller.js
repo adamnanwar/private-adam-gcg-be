@@ -76,7 +76,8 @@ class EvidenceController {
       }
 
       // Generate file URL
-      const fileUrl = `/uploads/evidence/${req.file.filename}`;
+      // Store as "evidence/filename.pdf" - frontend will prepend "/api/uploads/"
+      const fileUrl = `evidence/${req.file.filename}`;
       
       res.json(successResponse({
         uri: fileUrl,

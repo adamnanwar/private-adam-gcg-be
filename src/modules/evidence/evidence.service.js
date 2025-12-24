@@ -112,7 +112,28 @@ class EvidenceService {
       }
 
       // Generate file URL path (relative to uploads folder)
-      const fileUrl = `/uploads/evidence/${file.filename}`;
+      // Store as "evidence/filename.pdf" - frontend will prepend "/api/uploads/"
+      const fileUrl = `evidence/${file.filename}`;
+
+      // Check for duplicate evidence (same target_id, target_type, and original filename)
+      // This prevents accidental double-uploads
+      const dbTargetTypeForCheck = this.mapTargetType(targetType);
+      const existingEvidence = await this.db('evidence')
+        .where('target_id', targetId)
+        .where('target_type', dbTargetTypeForCheck)
+        .where('original_filename', file.originalname)
+        .first();
+
+      if (existingEvidence) {
+        logger.warn(`⚠️ Duplicate evidence detected: ${file.originalname} already exists for ${targetType} ${targetId}`);
+        // Delete the newly uploaded file since we won't be using it
+        const uploadedFilePath = path.join(__dirname, '../../../uploads/evidence', file.filename);
+        if (fs.existsSync(uploadedFilePath)) {
+          fs.unlinkSync(uploadedFilePath);
+        }
+        // Return existing evidence instead of creating duplicate
+        return { ...existingEvidence, original_target_type: targetType, duplicate: true };
+      }
 
       // Detect which columns exist in the database and build evidence object accordingly
       // This handles both old schema (uri, kind, original_name) and new schema (file_path, filename, etc.)
@@ -211,9 +232,10 @@ class EvidenceService {
       }
 
       // Generate file URL path
-      const fileUrl = `/uploads/evidence/${file.filename}`;
+      // Store as "evidence/filename.pdf" - frontend will prepend "/api/uploads/"
+      const fileUrl = `evidence/${file.filename}`;
       const evidenceId = randomUUID();
-      
+
       // Use mapped target_type for database compatibility
       const dbTargetType = this.mapTargetType('factor');  // Maps to 'assessment_factor'
       
