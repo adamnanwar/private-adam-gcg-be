@@ -776,6 +776,8 @@ class AcgsService {
           is_master_data: true,
           assessor_id: assessment.assessor_id,
           created_by: assessment.created_by,
+          overall_score: assessment.overall_score,
+          level_achieved: assessment.level_achieved,
           created_at: new Date(),
           updated_at: new Date()
         });
