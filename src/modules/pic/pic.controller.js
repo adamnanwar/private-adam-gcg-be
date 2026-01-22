@@ -180,6 +180,20 @@ class PICController {
   }
 
   /**
+   * Get users without unit bidang assignment (unassigned users)
+   */
+  async getUnassignedUsers(req, res) {
+    try {
+      const { search } = req.query;
+      const users = await this.service.getUnassignedUsers(search);
+      return res.json(successResponse(users, 'Unassigned users retrieved successfully'));
+    } catch (error) {
+      logger.error('Error in getUnassignedUsers controller:', error);
+      return res.status(500).json(errorResponse('Failed to retrieve unassigned users', 'INTERNAL_ERROR'));
+    }
+  }
+
+  /**
    * Bulk assign PICs
    */
   async bulkAssignPICs(req, res) {

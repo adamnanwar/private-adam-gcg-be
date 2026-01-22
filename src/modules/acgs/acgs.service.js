@@ -268,14 +268,14 @@ class AcgsService {
     // Note: target_type is mapped from 'acgs_question' to 'aoi' by evidence service
     const evidenceList = questionIds.length > 0
       ? await this.db('evidence')
-          .select('evidence.*')
-          .whereIn('evidence.target_id', questionIds)
-          .where(function() {
-            // Accept both mapped value ('aoi') and original value ('acgs_question')
-            this.where('evidence.target_type', 'aoi')
-                .orWhere('evidence.target_type', 'acgs_question');
-          })
-          .orderBy('evidence.created_at', 'desc')
+        .select('evidence.*')
+        .whereIn('evidence.target_id', questionIds)
+        .where(function () {
+          // Accept both mapped value ('aoi') and original value ('acgs_question')
+          this.where('evidence.target_type', 'aoi')
+            .orWhere('evidence.target_type', 'acgs_question');
+        })
+        .orderBy('evidence.created_at', 'desc')
       : [];
 
     // Create a map of question_id -> evidence array
@@ -1411,7 +1411,7 @@ class AcgsService {
     const unsubmittedCount = await db('acgs_question')
       .where('acgs_assessment_id', assessmentId)
       .whereNotNull('pic_unit_bidang_id')
-      .where(function() {
+      .where(function () {
         this.where('pic_submitted', false).orWhereNull('pic_submitted');
       })
       .count('id as count')
@@ -1452,6 +1452,73 @@ class AcgsService {
       return { success: true, updatedCount };
     } catch (error) {
       console.error('Error rejecting PIC submission:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reject all PIC submissions at once (global rejection)
+   * This marks ALL questions with pic_unit_bidang_id as rejected with the same rejection note
+   */
+  async rejectAllPICs(assessmentId, rejectionNote, userId) {
+    const { db } = require('../../config/database');
+
+    try {
+      // Mark ALL questions with a PIC assignment as rejected
+      const updatedCount = await db('acgs_question')
+        .where('acgs_assessment_id', assessmentId)
+        .whereNotNull('pic_unit_bidang_id')
+        .update({
+          pic_submitted: false,
+          pic_rejected: true,
+          pic_rejection_note: rejectionNote,
+          updated_at: new Date()
+        });
+
+      // Update assessment status back to in_progress
+      await db('acgs_assessment')
+        .where('id', assessmentId)
+        .update({
+          status: 'in_progress',
+          notes: rejectionNote, // Also save to assessment notes for visibility
+          updated_at: new Date(),
+          updated_by: userId
+        });
+
+      console.log(`✅ Rejected ALL ${updatedCount} questions in ACGS assessment ${assessmentId}`);
+
+      return { success: true, updatedCount };
+    } catch (error) {
+      console.error('Error rejecting all PICs:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reset PIC submission status (clear rejected flags so PIC can re-submit)
+   * This clears pic_submitted, pic_rejected, pic_rejection_note for questions of a specific unit_bidang
+   */
+  async resetPICSubmission(assessmentId, unitBidangId, userId) {
+    const { db } = require('../../config/database');
+
+    try {
+      // Clear submission and rejection status for questions of this unit bidang
+      const updatedCount = await db('acgs_question')
+        .where('acgs_assessment_id', assessmentId)
+        .where('pic_unit_bidang_id', unitBidangId)
+        .update({
+          pic_submitted: false,
+          pic_rejected: false,
+          pic_rejection_note: null,
+          pic_submitted_at: null,
+          updated_at: new Date()
+        });
+
+      console.log(`✅ Reset ${updatedCount} questions for unit ${unitBidangId} in ACGS assessment ${assessmentId}`);
+
+      return { success: true, updatedCount };
+    } catch (error) {
+      console.error('Error resetting PIC submission:', error);
       throw error;
     }
   }

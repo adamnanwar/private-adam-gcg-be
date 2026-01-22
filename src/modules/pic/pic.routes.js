@@ -29,6 +29,9 @@ router.get('/unit/:unitBidangId', requireRole(['admin', 'user']), picController.
 // GET /api/v1/pic/unit/:unitBidangId/users - Get users mapped to unit bidang (MUST be before /:target_type/:target_id)
 router.get('/unit/:unitBidangId/users', requireRole(['admin', 'user']), picController.getUsersByUnit.bind(picController));
 
+// GET /api/v1/pic/unassigned-users - Get users without unit bidang assignment (admin only)
+router.get('/unassigned-users', requireRole(['admin']), picController.getUnassignedUsers.bind(picController));
+
 // POST /api/v1/pic/assessment/:assessmentId/bulk - Bulk assign PICs for assessment (admin only) (MUST be before /:target_type/:target_id)
 router.post('/assessment/:assessmentId/bulk', requireRole(['admin']), picController.bulkAssignPICs.bind(picController));
 

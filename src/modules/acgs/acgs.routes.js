@@ -8,7 +8,7 @@ const { authenticateToken, requireRole } = require('../../middlewares/auth');
 
 const router = express.Router();
 
-module.exports = function(db) {
+module.exports = function (db) {
   const controller = new AcgsController();
 
   router.use(authenticateToken);
@@ -32,6 +32,12 @@ module.exports = function(db) {
 
   // Reject PIC Submission (for admin/assessor during verification)
   router.post('/assessments/:id/reject-pic', requireRole(['admin', 'assessor']), controller.rejectPICSubmission.bind(controller));
+
+  // Reject ALL PIC Submissions at once (global rejection)
+  router.post('/assessments/:id/reject-all', requireRole(['admin', 'assessor']), controller.rejectAllPICs.bind(controller));
+
+  // Reset PIC Submission (clear rejection status so PIC can re-submit)
+  router.post('/assessments/:id/reset-submission', requireRole(['admin', 'assessor']), controller.resetPICSubmission.bind(controller));
 
   // Responses
   router.post('/assessments/:id/responses', requireRole(['admin', 'assessor', 'user', 'pic']), controller.saveResponses.bind(controller));

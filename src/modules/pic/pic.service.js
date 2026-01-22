@@ -136,21 +136,21 @@ class PICService {
         )
         .leftJoin('unit_bidang', 'pic_map.unit_bidang_id', 'unit_bidang.id')
         .leftJoin('assessment', 'pic_map.assessment_id', 'assessment.id')
-        .leftJoin({ factor: 'factor' }, function() {
+        .leftJoin({ factor: 'factor' }, function () {
           this.on('pic_map.target_type', '=', this.db.raw('?', ['factor']))
             .andOn('pic_map.target_id', '=', 'factor.id');
         })
-        .leftJoin({ parameter: 'parameter' }, function() {
+        .leftJoin({ parameter: 'parameter' }, function () {
           this.on('pic_map.target_type', '=', this.db.raw('?', ['parameter']))
             .andOn('pic_map.target_id', '=', 'parameter.id');
         })
         .leftJoin({ factor_parameter: 'parameter' }, 'factor.parameter_id', 'factor_parameter.id')
-        .leftJoin('aspect', function() {
+        .leftJoin('aspect', function () {
           this.on('parameter.aspect_id', '=', 'aspect.id')
             .orOn('factor_parameter.aspect_id', '=', 'aspect.id');
         })
         .leftJoin('kka', 'aspect.kka_id', 'kka.id')
-        .whereExists(function() {
+        .whereExists(function () {
           this.select('*')
             .from('users')
             .where('users.unit_bidang_id', this.ref('pic_map.unit_bidang_id'))
@@ -188,11 +188,11 @@ class PICService {
           'kka.nama as kka_nama'
         )
         .leftJoin('unit_bidang', 'pic_map.unit_bidang_id', 'unit_bidang.id')
-        .leftJoin('factor', function() {
+        .leftJoin('factor', function () {
           this.on('pic_map.target_id', '=', 'factor.id')
             .andOn('pic_map.target_type', '=', db.raw('?', ['factor']));
         })
-        .leftJoin('parameter', function() {
+        .leftJoin('parameter', function () {
           this.on('pic_map.target_id', '=', 'parameter.id')
             .andOn('pic_map.target_type', '=', db.raw('?', ['parameter']))
             .orOn('factor.parameter_id', '=', 'parameter.id');
@@ -225,11 +225,11 @@ class PICService {
           'parameter.nama as parameter_nama'
         )
         .leftJoin('unit_bidang', 'pic_map.unit_bidang_id', 'unit_bidang.id')
-        .leftJoin('factor', function() {
+        .leftJoin('factor', function () {
           this.on('pic_map.target_id', '=', 'factor.id')
             .andOn('pic_map.target_type', '=', this.db.raw('?', ['factor']));
         })
-        .leftJoin('parameter', function() {
+        .leftJoin('parameter', function () {
           this.on('pic_map.target_id', '=', 'parameter.id')
             .andOn('pic_map.target_type', '=', this.db.raw('?', ['parameter']));
         })
@@ -448,6 +448,35 @@ class PICService {
       return users;
     } catch (error) {
       logger.error('Error in getUsersByUnit:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get users without unit_bidang assignment (unassigned users)
+   * @param {string} search - Optional search term for name or email
+   */
+  async getUnassignedUsers(search = '') {
+    try {
+      let query = this.db('users')
+        .select('id', 'name', 'email', 'role')
+        .where('is_active', true)
+        .whereNull('unit_bidang_id')
+        .orderBy('name', 'asc');
+
+      if (search && search.trim()) {
+        const searchTerm = `%${search.trim().toLowerCase()}%`;
+        query = query.where(function () {
+          this.whereRaw('LOWER(name) LIKE ?', [searchTerm])
+            .orWhereRaw('LOWER(email) LIKE ?', [searchTerm]);
+        });
+      }
+
+      const result = await query;
+      logger.info(`getUnassignedUsers: Found ${result.length} unassigned users`);
+      return result;
+    } catch (error) {
+      logger.error('Error in getUnassignedUsers:', error);
       throw error;
     }
   }

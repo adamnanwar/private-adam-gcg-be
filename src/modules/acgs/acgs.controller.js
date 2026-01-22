@@ -237,6 +237,48 @@ class AcgsController {
       res.status(500).json({ success: false, error: error.message });
     }
   }
+
+  /**
+   * Reject all PIC submissions at once (global rejection)
+   */
+  async rejectAllPICs(req, res) {
+    try {
+      const { id } = req.params;
+      const { rejection_note } = req.body;
+      const userId = req.user.id;
+
+      if (!rejection_note) {
+        return res.status(400).json({ success: false, error: 'rejection_note is required' });
+      }
+
+      const result = await this.service.rejectAllPICs(id, rejection_note, userId);
+      res.json({ success: true, data: result, message: 'All PIC submissions rejected successfully' });
+    } catch (error) {
+      console.error('Error rejecting all PICs:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  /**
+   * Reset PIC submission status (clear rejection so PIC can re-submit)
+   */
+  async resetPICSubmission(req, res) {
+    try {
+      const { id } = req.params;
+      const { unit_bidang_id } = req.body;
+      const userId = req.user.id;
+
+      if (!unit_bidang_id) {
+        return res.status(400).json({ success: false, error: 'unit_bidang_id is required' });
+      }
+
+      const result = await this.service.resetPICSubmission(id, unit_bidang_id, userId);
+      res.json({ success: true, data: result, message: 'PIC submission reset successfully' });
+    } catch (error) {
+      console.error('Error resetting PIC submission:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
 }
 
 module.exports = AcgsController;
