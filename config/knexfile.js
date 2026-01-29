@@ -5,19 +5,19 @@ module.exports = {
     client: 'postgresql',
     connection: {
       host: process.env.DB_HOST || 'localhost',
-      port: process.env.DB_PORT || 5432,
-      database: process.env.DB_NAME || 'gcg',
+      port: process.env.DB_PORT || ,
+      database: process.env.DB_NAME || '',
       user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'admin123',
+      password: process.env.DB_PASSWORD || '',
       statement_timeout: 60000,  // 60 seconds query timeout
       query_timeout: 60000,       // 60 seconds
       connectionTimeoutMillis: 60000  // PostgreSQL connection timeout
     },
     migrations: {
-      directory: './src/database/migrations'
+      directory: ''
     },
     seeds: {
-      directory: './src/database/seeds'
+      directory: ''
     },
     pool: {
       min: 2,
@@ -34,14 +34,14 @@ module.exports = {
   test: {
     client: 'postgresql',
     connection: {
-      host: process.env.DB_HOST || 'localhost',
-      port: process.env.DB_PORT || 5432,
-      database: process.env.DB_NAME_TEST || 'gcg_test',
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || 'admin123'
+      host: process.env.DB_HOST || ',
+      port: process.env.DB_PORT || ,
+      database: process.env.DB_NAME_TEST || '',
+      user: process.env.DB_USER || '',
+      password: process.env.DB_PASSWORD || ''
     },
     migrations: {
-      directory: './src/database/migrations'
+      directory: ''
     },
     seeds: {
       directory: './src/database/seeds'
@@ -59,10 +59,10 @@ module.exports = {
       ssl: { rejectUnauthorized: false }
     },
     migrations: {
-      directory: './src/database/migrations'
+      directory: ''
     },
     seeds: {
-      directory: './src/database/seeds'
+      directory: ''
     },
     pool: {
       min: 2,
