@@ -8,10 +8,10 @@ const db = knex(config.development);
 const testConnection = async () => {
   try {
     await db.raw('SELECT 1');
-    console.log('✅ Database connected successfully');
+    console.log(' Database connected successfully');
     return true;
   } catch (error) {
-    console.error('❌ Database connection failed:', error.message);
+    console.error(' Database connection failed:', error.message);
     return false;
   }
 };
@@ -20,9 +20,9 @@ const testConnection = async () => {
 const closeConnection = async () => {
   try {
     await db.destroy();
-    console.log('✅ Database connection closed');
+    console.log(' Database connection closed');
   } catch (error) {
-    console.error('❌ Error closing database connection:', error.message);
+    console.error(' Error closing database connection:', error.message);
   }
 };
 
